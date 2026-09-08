@@ -1,0 +1,115 @@
+#mxra-launcher {
+  position: fixed;
+  right: 22px;
+  bottom: 22px;
+  z-index: 2147483646;
+  border: none;
+  border-radius: 999px;
+  padding: 12px 18px;
+  background: #1f6feb;
+  color: #fff;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 8px 24px rgba(0,0,0,.22);
+}
+
+#mxra-panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  width: 430px;
+  max-width: 92vw;
+  height: 100vh;
+  z-index: 2147483647;
+  background: #fff;
+  box-shadow: -8px 0 28px rgba(0,0,0,.18);
+  display: flex;
+  flex-direction: column;
+  font-family: Arial, sans-serif;
+  color: #222;
+  transition: transform .18s ease;
+}
+
+#mxra-panel.mxra-hidden { display: none; }
+#mxra-panel.mxra-saving {
+  transform: translateX(calc(100% - 52px));
+}
+.mxra-head { padding: 14px 16px; border-bottom: 1px solid #ddd; display:flex; align-items:center; justify-content:space-between; }
+.mxra-head h3 { margin:0; font-size:17px; }
+.mxra-close { background:transparent; border:none; font-size:22px; cursor:pointer; }
+.mxra-body { padding: 14px 16px 90px; overflow:auto; }
+.mxra-row { margin-bottom: 12px; }
+.mxra-row label { display:block; font-weight:700; font-size:12px; margin-bottom:5px; }
+.mxra-row select, .mxra-row textarea, .mxra-row input {
+  width:100%; box-sizing:border-box; border:1px solid #ccc; border-radius:8px; padding:8px; font:inherit;
+}
+.mxra-row textarea { min-height:80px; resize:vertical; }
+.mxra-actions { display:flex; gap:8px; flex-wrap:wrap; }
+.mxra-btn { border:0; border-radius:8px; padding:9px 11px; cursor:pointer; font-weight:700; }
+.mxra-primary { background:#1f6feb; color:white; }
+.mxra-success { background:#238636; color:white; }
+.mxra-danger { background:#b42318; color:white; }
+.mxra-secondary { background:#eceff3; color:#222; }
+.mxra-status { font-size:12px; padding:8px 10px; background:#f6f8fa; border-radius:8px; white-space:pre-wrap; }
+.mxra-student { border:1px solid #e3e6ea; border-radius:10px; padding:10px; margin:10px 0; }
+.mxra-student-top { display:flex; align-items:center; gap:8px; margin-bottom:8px; }
+.mxra-student-name { font-weight:700; flex:1; }
+.mxra-student select { width:130px; }
+.mxra-tags { display:flex; flex-wrap:wrap; gap:6px; margin:6px 0; }
+.mxra-tag { font-size:11px; border:1px solid #ccd2da; border-radius:999px; padding:4px 7px; cursor:pointer; user-select:none; }
+.mxra-tag input { width:auto; margin-right:4px; }
+.mxra-student textarea { min-height:72px; width:100%; box-sizing:border-box; border:1px solid #ccc; border-radius:8px; padding:8px; }
+.mxra-checkpoint-box { border:1px solid #d7dde5; border-radius:8px; padding:8px; margin:8px 0; background:#fbfcfe; }
+.mxra-checkpoint-title { font-size:12px; font-weight:700; margin-bottom:7px; }
+.mxra-checkpoint-grid { display:grid; grid-template-columns:1fr 1fr 1fr; gap:7px; }
+.mxra-checkpoint-grid label { font-size:11px; font-weight:700; color:#444; }
+.mxra-checkpoint-grid input, .mxra-checkpoint-grid select { margin-top:4px; width:100%; box-sizing:border-box; border:1px solid #ccc; border-radius:8px; padding:7px; font:inherit; }
+.mxra-footer { position:absolute; bottom:0; left:0; right:0; background:white; border-top:1px solid #ddd; padding:10px 16px; display:flex; gap:8px; flex-wrap:wrap; }
+.mxra-small { font-size:11px; color:#666; line-height:1.4; }
+.mxra-pill { display:inline-block; font-size:11px; padding:3px 7px; border-radius:999px; background:#eef4ff; }
+
+#mxra-meta { max-height: 110px; overflow:auto; }
+.mxra-log { max-height: 90px; overflow:auto; margin-top:10px; }
+
+.mxra-lesson-help {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  margin-top: 6px;
+  font-size: 11px;
+  color: #666;
+  line-height: 1.4;
+}
+.mxra-source {
+  display: inline-block;
+  padding: 3px 7px;
+  border-radius: 999px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.mxra-source-ok { background: #eaf7ee; color: #1b7f3a; }
+.mxra-source-manual { background: #eef4ff; color: #2457a6; }
+.mxra-source-warn { background: #fff4dd; color: #8a5a00; }
+
+/* v0.5: đảm bảo ô Nội dung buổi học luôn tương tác được, kể cả khi LMS có CSS/listener toàn cục. */
+#mxra-panel #mxra-lesson {
+  position: relative !important;
+  z-index: 3 !important;
+  pointer-events: auto !important;
+  user-select: text !important;
+  -webkit-user-select: text !important;
+  cursor: text !important;
+  background: #fff !important;
+  min-height: 120px !important;
+  opacity: 1 !important;
+}
+
+#mxra-panel #mxra-lesson:focus {
+  outline: 2px solid rgba(31, 111, 235, .28) !important;
+  border-color: #1f6feb !important;
+}
+
+@media (max-width: 420px) {
+  .mxra-checkpoint-grid { grid-template-columns:1fr; }
+}
