@@ -402,7 +402,7 @@
     panel.className = 'mxra-hidden';
     panel.innerHTML = `
       <div class="mxra-head">
-        <h3>MindX Review Assistant <span class="mxra-pill">v0.6.1</span></h3>
+        <h3>MindX Review Assistant <span class="mxra-pill">v0.6.2</span></h3>
         <button class="mxra-close">×</button>
       </div>
       <div class="mxra-body">

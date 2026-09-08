@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "MindX Review Assistant",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "description": "Tạo, duyệt, điền và lưu nhận xét học viên, bao gồm form checkpoint trên MindX LMS.",
   "permissions": [
     "storage"
