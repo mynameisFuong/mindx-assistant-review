@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "MindX Review Assistant",
-  "version": "0.6.2",
+  "version": "0.7.1",
   "description": "Tạo, duyệt, điền và lưu nhận xét học viên, bao gồm form checkpoint trên MindX LMS.",
   "permissions": [
     "storage"
@@ -10,6 +10,16 @@
     "https://lms.mindx.edu.vn/*",
     "http://127.0.0.1:8787/*",
     "http://localhost:8787/*"
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "page_bridge.js"
+      ],
+      "matches": [
+        "https://lms.mindx.edu.vn/*"
+      ]
+    }
   ],
   "content_scripts": [
     {
