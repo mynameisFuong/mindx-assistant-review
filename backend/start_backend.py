@@ -16,4 +16,14 @@ except ModuleNotFoundError as exc:
     raise SystemExit(1) from exc
 
 load_dotenv(Path(__file__).with_name('.env'))
+
+try:
+    import app  # noqa: F401
+except (ImportError, ModuleNotFoundError) as exc:
+    requirements = Path(__file__).with_name("requirements.txt")
+    print(f"Cannot import backend app: {exc}")
+    print("Install/update backend dependencies with the same Python interpreter:")
+    print(f'"{sys.executable}" -m pip install -r "{requirements}"')
+    raise SystemExit(1) from exc
+
 uvicorn.run('app:app', host='127.0.0.1', port=8787, reload=False)

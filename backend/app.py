@@ -19,6 +19,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Keep the default on a generally available Gemini Developer API model. The
+# app may still override this via GEMINI_MODEL in backend/.env.
+DEFAULT_GEMINI_MODEL = "gemini-3.8-flash"
+FALLBACK_GEMINI_MODELS = [
+    DEFAULT_GEMINI_MODEL,
+    "gemini-3.5-flash-lite",
+    "gemini-2.5-flash",
+]
+DEFAULT_BATCH_SIZE = 8
+MAX_RETRIES_PER_MODEL = 3
+
 
 class StudentInput(BaseModel):
     id: int
@@ -65,7 +76,7 @@ BẮT BUỘC:
 - Nếu dữ liệu có checkpoint, dùng điểm năng lực/thực hành/trắc nghiệm như bằng chứng cụ thể; không tự suy diễn nguyên nhân điểm số.
 - Nếu không có tag/ghi chú đủ cụ thể, dùng cách diễn đạt thận trọng như "Con đã được làm quen...", "Con cần tiếp tục luyện..." thay vì khẳng định quá mức.
 - "Điểm cần cải thiện" không được quá nặng nề; phải có tính xây dựng.
-- "Lời khuyên" phải cụ thể, có thể thực hiện được.
+- "Lời khuyên" phải cụ thể, tự nhiên, ngôn ngữ gần gũi, có thể thực hiện được. Thể hiện văn bản giống lời khuyên của giáo viên, hạn chế các câu cảm thán.
 - Tránh lặp nguyên câu giữa các học viên.
 - Mỗi nhận xét khoảng 90-150 từ.
 - Không ghi tên học viên vì tên được giữ cục bộ trên trình duyệt.
@@ -102,6 +113,54 @@ def get_client() -> genai.Client:
     return genai.Client(api_key=key)
 
 
+def configured_models() -> List[str]:
+    raw = os.getenv("GEMINI_MODEL", DEFAULT_GEMINI_MODEL).strip()
+    models = [raw or DEFAULT_GEMINI_MODEL, *FALLBACK_GEMINI_MODELS]
+    unique = []
+    for model in models:
+        model = model.strip()
+        if model and model not in unique:
+            unique.append(model)
+    return unique
+
+
+def is_model_not_found(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return (
+        "404" in message
+        or "not_found" in message
+        or "model not found" in message
+        or "not found" in message and "model" in message
+    )
+
+
+def is_retryable_upstream_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return any(
+        marker in message
+        for marker in [
+            "429",
+            "500",
+            "502",
+            "503",
+            "504",
+            "deadline",
+            "rate limit",
+            "resource_exhausted",
+            "timeout",
+            "temporarily",
+            "unavailable",
+            "upstream",
+            "overloaded",
+        ]
+    )
+
+
+def chunked(items: List[dict], size: int):
+    for start in range(0, len(items), size):
+        yield items[start:start + size]
+
+
 def parse_json(text: str):
     """Fallback parser in case the SDK/model wraps JSON unexpectedly."""
     text = (text or "").strip()
@@ -116,12 +175,80 @@ def parse_json(text: str):
         return json.loads(match.group(0))
 
 
+def generation_config(student_count: int) -> types.GenerateContentConfig:
+    max_output_tokens = min(32768, max(4096, student_count * 450))
+    return types.GenerateContentConfig(
+        system_instruction=SYSTEM_RULES,
+        response_mime_type="application/json",
+        response_schema=RESPONSE_SCHEMA,
+        temperature=0.75,
+        max_output_tokens=max_output_tokens,
+        automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
+    )
+
+
+def build_prompt(req: GenerateRequest, students: List[dict]) -> str:
+    return f"""
+Thông tin lớp (không dùng để suy đoán thêm):
+- Mã/tên lớp: {req.course_name or '(không xác định)'}
+- Buổi: {req.session_label or '(không xác định)'}
+
+Nội dung buổi học:
+{req.lesson_text}
+
+Dữ liệu đánh giá theo ID học viên:
+{json.dumps(students, ensure_ascii=False)}
+
+Hãy tạo đúng {len(students)} nhận xét. Mỗi ID phải xuất hiện đúng một lần.
+""".strip()
+
+
+def call_gemini_json(client: genai.Client, prompt: str, student_count: int):
+    last_error = None
+    tried_models = []
+    for model in configured_models():
+        tried_models.append(model)
+        for attempt in range(MAX_RETRIES_PER_MODEL):
+            try:
+                response = client.models.generate_content(
+                    model=model,
+                    contents=prompt,
+                    config=generation_config(student_count),
+                )
+                if not response.text:
+                    raise RuntimeError("Gemini không trả về nội dung văn bản.")
+                return parse_json(response.text)
+            except Exception as exc:
+                last_error = exc
+                if is_model_not_found(exc):
+                    break
+                if is_retryable_upstream_error(exc) and attempt < MAX_RETRIES_PER_MODEL - 1:
+                    time.sleep(2 ** (attempt + 1))
+                    continue
+                break
+
+        if last_error is None:
+            break
+        if not is_model_not_found(last_error) and not is_retryable_upstream_error(last_error):
+            break
+
+    raise HTTPException(
+        status_code=502,
+        detail=(
+            "Lỗi gọi Gemini API. "
+            f"Đã thử model: {', '.join(tried_models)}. "
+            f"Lỗi cuối: {last_error}"
+        ),
+    )
+
+
 @app.get("/health")
 def health():
     return {
         "ok": True,
         "provider": "gemini",
-        "model": os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
+        "model": configured_models()[0],
+        "fallback_models": configured_models()[1:],
         "api_key_configured": bool(os.getenv("GEMINI_API_KEY", "").strip()),
     }
 
@@ -154,69 +281,29 @@ def generate(req: GenerateRequest):
         for s in req.students
     ]
 
-    prompt = f"""
-Thông tin lớp (không dùng để suy đoán thêm):
-- Mã/tên lớp: {req.course_name or '(không xác định)'}
-- Buổi: {req.session_label or '(không xác định)'}
-
-Nội dung buổi học:
-{req.lesson_text}
-
-Dữ liệu đánh giá theo ID học viên:
-{json.dumps(compact_students, ensure_ascii=False)}
-
-Hãy tạo đúng {len(req.students)} nhận xét. Mỗi ID phải xuất hiện đúng một lần.
-""".strip()
-
     client = get_client()
-    model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash").strip() or "gemini-2.5-flash"
-
-    last_error = None
-    for attempt in range(3):
-        try:
-            response = client.models.generate_content(
-                model=model,
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    system_instruction=SYSTEM_RULES,
-                    response_mime_type="application/json",
-                    response_schema=RESPONSE_SCHEMA,
-                    temperature=0.75,
-                    max_output_tokens=8192,
-                ),
-            )
-            if not response.text:
-                raise RuntimeError("Gemini không trả về nội dung văn bản.")
-            data = parse_json(response.text)
-            last_error = None
-            break
-        except Exception as exc:
-            last_error = exc
-            message = str(exc).lower()
-            is_rate_limit = "429" in message or "resource_exhausted" in message or "rate limit" in message
-            if is_rate_limit and attempt < 2:
-                time.sleep(2 ** (attempt + 1))
-                continue
-            break
-
-    if last_error is not None:
-        raise HTTPException(status_code=502, detail=f"Lỗi gọi Gemini API: {last_error}")
-
-    items = data.get("comments", []) if isinstance(data, dict) else []
     expected = {s.id for s in req.students}
     output = []
     seen = set()
 
-    for item in items:
-        try:
-            sid = int(item.get("id"))
-            comment = str(item.get("comment", "")).strip()
-        except Exception:
-            continue
+    for student_batch in chunked(compact_students, DEFAULT_BATCH_SIZE):
+        data = call_gemini_json(
+            client=client,
+            prompt=build_prompt(req, student_batch),
+            student_count=len(student_batch),
+        )
+        items = data.get("comments", []) if isinstance(data, dict) else []
 
-        if sid in expected and sid not in seen and comment:
-            output.append(GeneratedComment(id=sid, comment=comment))
-            seen.add(sid)
+        for item in items:
+            try:
+                sid = int(item.get("id"))
+                comment = str(item.get("comment", "")).strip()
+            except Exception:
+                continue
+
+            if sid in expected and sid not in seen and comment:
+                output.append(GeneratedComment(id=sid, comment=comment))
+                seen.add(sid)
 
     got = {item.id for item in output}
     if got != expected:
