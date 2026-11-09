@@ -2,11 +2,11 @@
   if (window.__MXRA_LOADED__) return;
   window.__MXRA_LOADED__ = true;
 
-  const API = 'http://127.0.0.1:8787';
   const TAGS = [
     'Tập trung', 'Chủ động', 'Hoàn thành tốt', 'Hiểu bài nhanh',
     'Cần luyện thêm', 'Cần cẩn thận', 'Cần hỗ trợ', 'Sáng tạo'
   ];
+  const CLASS_CODE = /\b[A-Z][A-Z0-9]{1,5}(?:-[A-Z0-9]{2,12}){2,}\b/;
 
   const state = {
     students: [],
@@ -16,22 +16,15 @@
     sessionLabel: '',
     isCheckpoint: false,
     lessonManuallyEdited: false,
-    lastAutoLesson: ''
+    pageUrl: '',
+    busy: false,
+    mockDrafts: false
   };
 
   const sleep = ms => new Promise(r => setTimeout(r, ms));
   const visible = el => !!(el && (el.offsetWidth || el.offsetHeight || el.getClientRects().length));
   const norm = s => (s || '').replace(/\s+/g, ' ').trim();
   const isMxra = el => !!(el && el.closest && el.closest('#mxra-panel, #mxra-launcher'));
-
-  function injectPageBridge() {
-    if (document.documentElement.dataset.mxraBridgeInjected === '1') return;
-    document.documentElement.dataset.mxraBridgeInjected = '1';
-    const script = document.createElement('script');
-    script.src = chrome.runtime.getURL('page_bridge.js');
-    script.onload = () => script.remove();
-    (document.head || document.documentElement).appendChild(script);
-  }
 
   function pageElements(selector) {
     return [...document.querySelectorAll(selector)].filter(el => visible(el) && !isMxra(el));
@@ -82,7 +75,6 @@
     if (!summary) return document.body;
 
     const buttons = reviewButtons();
-    const classCodeRe = /\b[A-Z]{2,6}(?:-[A-Z0-9]{2,12}){2,}\b/;
     let node = summary.parentElement;
     let contentFallback = null;
     for (let i = 0; i < 16 && node && node !== document.body; i++, node = node.parentElement) {
@@ -90,14 +82,14 @@
       const t = elText(node);
       const hasEnd = t.includes('Bài về nhà');
       const hasStudents = t.includes('Học viên') || buttons.some(btn => node.contains(btn));
-      const hasClassCode = classCodeRe.test(t);
+      const hasClassCode = CLASS_CODE.test(t);
       if (hasEnd && hasStudents && !contentFallback) contentFallback = node;
       // Ưu tiên ancestor nhỏ nhất vừa chứa nội dung tab Nhận xét vừa chứa mã lớp header.
       if (hasEnd && hasStudents && hasClassCode) return node;
     }
 
     const dialog = summary.closest('[role="dialog"], .modal, .drawer, .ant-drawer, .ant-drawer-content, .ant-modal, .ant-modal-content');
-    if (dialog && classCodeRe.test(elText(dialog))) return dialog;
+    if (dialog && CLASS_CODE.test(elText(dialog))) return dialog;
     return contentFallback || dialog || document.body;
   }
 
@@ -106,7 +98,7 @@
     const summary = findSummaryHeading();
     const summaryTop = summary?.getBoundingClientRect().top ?? Number.POSITIVE_INFINITY;
     const rootRect = root?.getBoundingClientRect?.() || {top: 0};
-    const codeRe = /\b[A-Z]{2,6}(?:-[A-Z0-9]{2,12}){2,}\b/g;
+    const codeRe = new RegExp(CLASS_CODE, 'g');
     const candidates = [];
 
     const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
@@ -367,7 +359,6 @@
   function extractStudents() {
     const buttons = reviewButtons();
     const seenContainers = new Set();
-    const seenRows = new Set();
     const result = [];
 
     for (const button of buttons) {
@@ -376,11 +367,7 @@
       seenContainers.add(container);
 
       const name = inferStudentName(container);
-      const attendance = norm(container.innerText).includes('Vắng') ? 'Vắng' : 'Có mặt';
-      // Dedupe thêm bằng tên + trạng thái để xử lý trường hợp LMS clone cùng một row.
-      const rowKey = `${name.toLocaleUpperCase('vi-VN')}|${attendance}`;
-      if (seenRows.has(rowKey)) continue;
-      seenRows.add(rowKey);
+      const attendance = studentAttendance(container);
 
       result.push({
         id: result.length + 1,
@@ -400,6 +387,13 @@
     return result;
   }
 
+  function studentAttendance(container) {
+    const lines = (container.innerText || '').split('\n').map(foldText);
+    if (lines.includes('vang')) return 'Vắng';
+    if (lines.includes('di muon')) return 'Đi muộn';
+    return 'Có mặt';
+  }
+
   function createUI() {
     const launcher = document.createElement('button');
     launcher.id = 'mxra-launcher';
@@ -411,7 +405,7 @@
     panel.className = 'mxra-hidden';
     panel.innerHTML = `
       <div class="mxra-head">
-        <h3>MindX Review Assistant <span class="mxra-pill">v0.7.1</span></h3>
+        <h3>MindX Review Assistant <span class="mxra-pill">v${chrome.runtime.getManifest().version}</span></h3>
         <button class="mxra-close">×</button>
       </div>
       <div class="mxra-body">
@@ -450,7 +444,7 @@
 
     launcher.onclick = () => {
       panel.classList.remove('mxra-hidden');
-      scanPage();
+      if (!isCurrentPage()) scanPage();
     };
     panel.querySelector('.mxra-close').onclick = () => panel.classList.add('mxra-hidden');
     panel.querySelector('#mxra-scan').onclick = scanPage;
@@ -476,6 +470,7 @@
       lessonInput.focus({preventScroll: true});
       const end = lessonInput.value.length;
       try { lessonInput.setSelectionRange(end, end); } catch (_) {}
+      state.lessonManuallyEdited = true;
       if (lessonInput.value.trim()) updateLessonSource('manual');
       log('✍ Chế độ nhập thủ công: click vào ô Nội dung buổi học để gõ hoặc dán nội dung.');
     };
@@ -485,13 +480,12 @@
       box.value = '';
       state.lessonText = '';
       state.lessonManuallyEdited = false;
-      state.lastAutoLesson = '';
       updateLessonSource('empty');
       log('Đã xóa nội dung buổi học. Bạn có thể đồng bộ lại từ LMS hoặc tự nhập.');
     };
     panel.querySelector('#mxra-mode').onchange = e => { state.mode = e.target.value; };
-    panel.querySelector('#mxra-generate').onclick = generateComments;
-    panel.querySelector('#mxra-save-approved').onclick = saveAllComments;
+    panel.querySelector('#mxra-generate').onclick = () => runPanelAction(generateComments);
+    panel.querySelector('#mxra-save-approved').onclick = () => runPanelAction(saveAllComments);
   }
 
   function updateLessonSource(source) {
@@ -557,6 +551,10 @@
         <input data-role="note" placeholder="Ghi chú riêng (tùy chọn): ví dụ cần nhắc làm bài, hay mất tập trung..." />
         <textarea data-role="comment" placeholder="Nhận xét AI sẽ xuất hiện ở đây..."></textarea>
       `;
+      card.querySelector('[data-role="level"]').value = s.level;
+      card.querySelector('[data-role="note"]').value = s.note;
+      card.querySelector('[data-role="comment"]').value = s.comment;
+      card.querySelectorAll('.mxra-tag input').forEach(cb => { cb.checked = s.tags.includes(cb.value); });
       card.querySelector('[data-role="level"]').onchange = e => {
         s.level = e.target.value;
         if (state.isCheckpoint) {
@@ -582,24 +580,35 @@
   }
 
   function scanPage() {
+    if (state.busy) return;
     log('🔎 Đang đồng bộ dữ liệu từ LMS...');
 
     const lessonBox = document.querySelector('#mxra-lesson');
-    const manualBeforeScan = lessonBox?.value?.trim() || '';
     const autoLesson = extractLessonText();
     const students = extractStudents();
     const courseName = getCourseName();
     const sessionLabel = getSessionLabel();
     const checkpoint = isCheckpointSession(courseName, sessionLabel);
+    const samePage = state.pageUrl === location.href && state.courseName === courseName && state.sessionLabel === sessionLabel;
+    const previous = new Map(samePage ? state.students.map(s => [s.button, s]) : []);
+    const sameRoster = samePage && students.length === previous.size &&
+      students.every(s => previous.get(s.button)?.name === s.name);
+    const manualBeforeScan = samePage && state.lessonManuallyEdited && ((courseName && sessionLabel) || sameRoster)
+      ? lessonBox.value.trim() : '';
 
-    state.students = students;
+    state.students = students.map(s => {
+      const old = previous.get(s.button);
+      if (old?.name !== s.name || old.attendance !== s.attendance) return s;
+      return {...old, id: s.id, container: s.container};
+    });
+    if (!state.students.some(s => s.comment)) state.mockDrafts = false;
+    state.pageUrl = location.href;
     state.courseName = courseName;
     state.sessionLabel = sessionLabel;
     state.isCheckpoint = checkpoint;
 
-    if (autoLesson) {
+    if (autoLesson && !manualBeforeScan) {
       state.lessonText = autoLesson;
-      state.lastAutoLesson = autoLesson;
       state.lessonManuallyEdited = false;
       if (lessonBox) lessonBox.value = autoLesson;
       updateLessonSource('lms');
@@ -610,7 +619,6 @@
       updateLessonSource('manual');
     } else {
       state.lessonText = '';
-      state.lastAutoLesson = '';
       state.lessonManuallyEdited = false;
       if (lessonBox) lessonBox.value = '';
       updateLessonSource('empty');
@@ -630,8 +638,8 @@
 
     if (!autoLesson && !manualBeforeScan && !students.length) {
       log('⚠️ Chưa lấy được nội dung buổi học và danh sách học viên. Bạn có thể tự nhập nội dung buổi học vào ô phía trên.');
-    } else if (!autoLesson && manualBeforeScan) {
-      log(`⚠️ LMS chưa đồng bộ được mục Tổng kết/Tổng két. Đang giữ và sử dụng nội dung bạn nhập thủ công. Tìm thấy ${students.length} học viên.`);
+    } else if (state.lessonManuallyEdited) {
+      log(`Đang giữ nội dung bạn nhập thủ công. Tìm thấy ${students.length} học viên.`);
     } else if (!autoLesson) {
       log(`⚠️ Đã tìm thấy ${students.length} học viên nhưng chưa đọc được mục Tổng kết/Tổng két. Hãy nhập/dán nội dung buổi học trực tiếp vào ô phía trên.`);
     } else if (!students.length) {
@@ -641,6 +649,39 @@
     } else {
       log(`✅ Đồng bộ xong: lớp ${courseName}, ${checkpoint ? 'đã nhận diện buổi checkpoint' : 'form nhận xét thường'}, đã lấy nội dung buổi học và ${students.length} học viên.`);
     }
+  }
+
+  function isCurrentPage() {
+    if (location.href !== state.pageUrl || getCourseName() !== state.courseName || getSessionLabel() !== state.sessionLabel) return false;
+    if (state.courseName && state.sessionLabel) return true;
+    const current = extractStudents();
+    return current.length === state.students.length &&
+      current.every((s, i) => s.button === state.students[i].button && s.name === state.students[i].name);
+  }
+
+  function requireCurrentPage() {
+    if (!isCurrentPage()) throw new Error('Bạn đã chuyển lớp hoặc buổi học. Hãy bấm Đồng bộ lại từ LMS và kiểm tra lại.');
+  }
+
+  async function runPanelAction(action) {
+    if (state.busy) return;
+    const controls = [...document.querySelectorAll('#mxra-panel button, #mxra-panel select, #mxra-panel input, #mxra-panel textarea')];
+    state.busy = true;
+    controls.forEach(el => { el.disabled = true; });
+    try {
+      await action();
+    } catch (e) {
+      log(`❌ ${e.message}`);
+    } finally {
+      state.busy = false;
+      controls.forEach(el => { el.disabled = false; });
+    }
+  }
+
+  async function askBackend(message) {
+    const response = await chrome.runtime.sendMessage(message);
+    if (!response?.data) throw new Error(response?.error || 'Không liên lạc được với tiện ích. Hãy tải lại extension và tab LMS.');
+    return response.data;
   }
 
   function clampNumber(value, min, max) {
@@ -667,6 +708,10 @@
     state.lessonText = lessonText;
     if (!lessonText) return log('⚠️ Chưa có nội dung buổi học. Hãy đồng bộ từ LMS hoặc nhập/dán thủ công vào ô Nội dung buổi học.');
     if (!state.students.length) return log('⚠️ Chưa tìm thấy học viên.');
+    requireCurrentPage();
+    if (state.mode === 'C' && (!state.courseName || !state.sessionLabel)) {
+      return log('⚠️ Chưa xác định được lớp hoặc buổi học. Hãy đồng bộ lại hoặc dùng chế độ B để duyệt.');
+    }
 
     state.students.forEach(readStudentCard);
 
@@ -688,25 +733,38 @@
 
     log(`⏳ Đang tạo ${state.students.length} nhận xét...`);
     try {
-      const res = await fetch(`${API}/generate`, {
-        method: 'POST',
-        headers: {'Content-Type':'application/json'},
-        body: JSON.stringify(payload)
-      });
-      if (!res.ok) throw new Error(await res.text());
-      const data = await res.json();
-      const byId = new Map((data.comments || []).map(x => [Number(x.id), x.comment]));
+      const {job_id: jobId} = await askBackend({type: 'mxra-generate-start', payload});
+      let data;
+      const deadline = Date.now() + 360000;
+      while (Date.now() < deadline) {
+        await sleep(1500);
+        requireCurrentPage();
+        const poll = await askBackend({type: 'mxra-generate-status', jobId});
+        if (poll.status === 'done') {
+          data = poll.result;
+          break;
+        }
+      }
+      if (!data) throw new Error('Đã hết thời gian chờ Gemini. Thử lại sau.');
+      requireCurrentPage();
+      const byId = new Map((data.comments || []).map(x => [x.id, x.comment]));
+      if (byId.size !== state.students.length || state.students.some(s => !byId.get(s.id)?.trim())) {
+        throw new Error('Backend trả thiếu nhận xét. Hãy thử tạo lại.');
+      }
+      state.mockDrafts = data.mock_mode === true;
       for (const s of state.students) {
         s.comment = byId.get(s.id) || '';
+        s.savedReview = null;
         if (s._card) s._card.querySelector('[data-role="comment"]').value = s.comment;
       }
+      if (state.mockDrafts) return log('🧪 Đã tạo nhận xét thử. Chế độ thử không cho lưu vào LMS.');
       log('✅ Đã tạo nhận xét. Bạn có thể sửa trực tiếp trước khi lưu.');
       if (state.mode === 'C') {
         await saveAllComments();
       }
     } catch (e) {
       console.error(e);
-      log(`❌ Không gọi được backend: ${e.message}`);
+      log(`❌ Không tạo được nhận xét: ${e.message}`);
     }
   }
 
@@ -924,13 +982,7 @@
           return (ar.top - labelRect.top + aContent) - (br.top - labelRect.top + bContent);
         })[0] || null;
     }
-    if (!editor && checkpoint && editors.length) {
-      editor = [...editors].sort((a, b) => {
-        const ar = a.getBoundingClientRect();
-        const br = b.getBoundingClientRect();
-        return br.top - ar.top;
-      })[0];
-    }
+    if (!editor && checkpoint) return false;
     editor = editor ||
       editors.find(el => el.getAttribute('contenteditable') === 'true') ||
       editors.find(el => ['TEXTAREA', 'IFRAME'].includes(el.tagName)) ||
@@ -943,12 +995,14 @@
       const body = editor.contentDocument?.body;
       if (!body) return false;
       setRichEditorHtml(body, toHtml(comment), comment);
+      return norm(body.innerText) === norm(comment.replace(/\*\*/g, ''));
     } else if (editor.tagName === 'TEXTAREA' || editor.tagName === 'INPUT') {
       setFieldValue(editor, comment);
+      return editor.value === comment;
     } else {
       setRichEditorHtml(editor, toHtml(comment), comment);
+      return norm(editor.innerText) === norm(comment.replace(/\*\*/g, ''));
     }
-    return true;
   }
 
   function clickOption(el) {
@@ -1022,7 +1076,7 @@
   }
 
   function pageBridgeClick(el) {
-    injectPageBridge();
+    if (document.documentElement.dataset.mxraBridgeReady !== '1') return Promise.resolve(false);
     const token = `mxra-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     el.setAttribute('data-mxra-click-token', token);
     document.documentElement.setAttribute('data-mxra-click-request', token);
@@ -1052,7 +1106,7 @@
   }
 
   function pageBridgeSetCheckbox(el, checked) {
-    injectPageBridge();
+    if (document.documentElement.dataset.mxraBridgeReady !== '1') return Promise.resolve(false);
     const token = `mxra-checkbox-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     el.setAttribute('data-mxra-checkbox-token', token);
     document.documentElement.setAttribute('data-mxra-checkbox-request', token);
@@ -1085,7 +1139,7 @@
   }
 
   function pageBridgeSetRadio(el) {
-    injectPageBridge();
+    if (document.documentElement.dataset.mxraBridgeReady !== '1') return Promise.resolve(false);
     const token = `mxra-radio-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     el.setAttribute('data-mxra-radio-token', token);
     document.documentElement.setAttribute('data-mxra-radio-request', token);
@@ -1115,7 +1169,7 @@
   }
 
   function pageBridgeSetInput(el, value) {
-    injectPageBridge();
+    if (document.documentElement.dataset.mxraBridgeReady !== '1') return Promise.resolve(false);
     const token = `mxra-input-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     el.setAttribute('data-mxra-input-token', token);
     document.documentElement.setAttribute('data-mxra-input-request', token);
@@ -1154,7 +1208,7 @@
     const x = rect.left + rect.width / 2;
     const y = rect.top + rect.height / 2;
     const topElement = document.elementFromPoint(x, y);
-    const clickTargets = [topElement, el].filter(Boolean);
+    const clickTargets = [el.contains(topElement) ? topElement : el];
 
     for (const target of clickTargets) {
       ['pointerover', 'mouseover', 'pointerenter', 'mouseenter', 'pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].forEach(type => {
@@ -1169,14 +1223,13 @@
           buttons: type.includes('down') ? 1 : 0
         }));
       });
-      try { target.click(); } catch (_) {}
     }
-    triggerReactClick(el);
     return true;
   }
 
   async function tryOpenByReviewButton(button, student) {
     const attempts = [
+      () => button.click(),
       () => clickLmsElement(button),
       () => triggerReactClick(button),
       () => pageBridgeClick(button),
@@ -1345,6 +1398,7 @@
     if (!textEl) return false;
     const row = inputRowForText(textEl);
     const options = radioOptions(row);
+    if (options.length !== 5) return false;
     const index = Math.max(0, Math.min(4, Number(rating) - 1));
     return setRadioState(options[index]);
   }
@@ -1381,7 +1435,7 @@
     );
   }
 
-  async function setAbilityRatingsByGroups(modal, rating) {
+  async function setAbilityRatingsByGroups(modal, rating, expected) {
     const start = await scrollModalToText(modal, 'diem nang luc');
     const end = findTextElementByFold(modal, 'diem thuc hanh va trac nghiem') || findTextElementByFold(modal, 'diem thuc hanh');
     if (!start) return 0;
@@ -1394,6 +1448,7 @@
         return top >= startTop - 8 && top < endTop - 8;
       });
     const groups = groupRadioInputs(radios);
+    if (!end || groups.length !== expected || groups.some(group => group.length !== 5)) return 0;
     const index = Math.max(0, Math.min(4, Number(rating) - 1));
     let touched = 0;
     for (const group of groups) {
@@ -1430,7 +1485,8 @@
         return top >= startTop - 8 && top < endTop - 8;
       })
       .sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top);
-    const count = Math.max(0, Math.min(quizBoxes.length, Number(correctCount) || 0));
+    if (!heading || quizBoxes.length !== 10 || !Number.isInteger(correctCount) || correctCount < 0 || correctCount > 10) return false;
+    const count = correctCount;
     let touched = 0;
     for (let index = 0; index < quizBoxes.length; index++) {
       const ok = await setCheckboxState(quizBoxes[index], index < count);
@@ -1441,7 +1497,6 @@
   }
 
   async function fillCheckpointFields(modal, student) {
-    if (!isCheckpointModal(modal)) return {ok: true, checkpoint: false};
     await scrollModalTo(modal, 0);
     const labels = [
       'kien thuc hoc vien da duoc hoc tai lop',
@@ -1459,7 +1514,7 @@
       if (await setRatingNearLabel(modal, label, student.checkpointAbility)) touched++;
     }
     if (touched < labels.length) {
-      touched = Math.max(touched, await setAbilityRatingsByGroups(modal, student.checkpointAbility));
+      touched = Math.max(touched, await setAbilityRatingsByGroups(modal, student.checkpointAbility, labels.length));
     }
     const practiceOk = await setNumericInputNearLabel(modal, 'diem thuc hanh', student.checkpointPractice);
     const quizOk = await setCheckpointQuiz(modal, student.checkpointQuizCorrect);
@@ -1475,16 +1530,17 @@
   }
 
   function findFreshReviewButton(student) {
-    const targetName = foldText(student.name);
-    const candidates = reviewButtons()
-      .map(button => ({button, container: findStudentContainer(button)}))
-      .filter(x => x.container);
-    const exact = candidates.find(x => foldText(inferStudentName(x.container)) === targetName);
-    if (exact) return exact.button;
-    return student.button && document.body.contains(student.button) ? student.button : null;
+    const candidates = extractStudents().filter(s => s.name === student.name && s.attendance === student.attendance);
+    if (candidates.some(s => s.button === student.button)) return student.button;
+    const originalMatches = state.students.filter(s => s.name === student.name && s.attendance === student.attendance);
+    if (state.courseName && state.sessionLabel && student.name !== 'Học viên' && candidates.length === 1 && originalMatches.length === 1) {
+      return candidates[0].button;
+    }
+    return null;
   }
 
   async function openStudentModal(student) {
+    if (findVisibleModal()) throw new Error('Hãy đóng form nhận xét đang mở trước khi lưu tiếp.');
     const panel = document.querySelector('#mxra-panel');
     panel?.classList.add('mxra-saving');
     await sleep(120);
@@ -1511,8 +1567,10 @@
     if (!btn) throw new Error('Không tìm thấy nút Lưu trong modal.');
     btn.scrollIntoView({block:'center', inline:'center'});
     await sleep(120);
-    clickLmsElement(btn);
-    await pageBridgeClick(btn);
+    if (!btn.isConnected || btn.disabled || btn.getAttribute('aria-disabled') === 'true') {
+      throw new Error('Nút Lưu đang bị khóa. Kiểm tra các trường bắt buộc trong form.');
+    }
+    btn.click();
     for (let i=0; i<70; i++) {
       await sleep(150);
       if (!visible(modal) || !document.body.contains(modal)) return;
@@ -1521,31 +1579,36 @@
   }
 
   async function saveAllComments() {
+    if (state.mockDrafts) return log('🧪 Nhận xét thử không được lưu vào LMS. Hãy tắt chế độ thử và tạo lại.');
+    requireCurrentPage();
     state.students.forEach(readStudentCard);
-    const todo = state.students.filter(s => s.comment);
-    if (!todo.length) return log('⚠️ Chưa có nhận xét để lưu.');
+    const reviewKey = s => JSON.stringify([s.comment, s.checkpointAbility, s.checkpointPractice, s.checkpointQuizCorrect]);
+    const todo = state.students.filter(s => s.comment && reviewKey(s) !== s.savedReview);
+    if (!todo.length) return log('⚠️ Không có nhận xét mới để lưu.');
 
     log(`⏳ Đang lưu 0/${todo.length}...`);
     let done = 0;
     for (const s of todo) {
       try {
+        requireCurrentPage();
         const modal = await openStudentModal(s);
-        const checkpointResult = await fillCheckpointFields(modal, s);
-        if (checkpointResult.checkpoint && !checkpointResult.ok) {
-          throw new Error(`Không đồng bộ đủ checkpoint: năng lực ${checkpointResult.touched}/${checkpointResult.expected}, thực hành ${checkpointResult.practiceOk ? 'OK' : 'lỗi'}, trắc nghiệm ${checkpointResult.quizOk ? 'OK' : 'lỗi'}.`);
+        if (isCheckpointModal(modal) !== state.isCheckpoint) {
+          throw new Error('Form LMS không khớp loại buổi trong panel. Hãy kiểm tra lại lớp, buổi và checkpoint.');
+        }
+        if (state.isCheckpoint) {
+          const result = await fillCheckpointFields(modal, s);
+          if (!result.ok) {
+            throw new Error(`Không đồng bộ đủ checkpoint: năng lực ${result.touched}/${result.expected}, thực hành ${result.practiceOk ? 'OK' : 'lỗi'}, trắc nghiệm ${result.quizOk ? 'OK' : 'lỗi'}.`);
+          }
         }
         const ok = await setEditorValue(modal, s.comment);
         if (!ok) throw new Error('Không tìm thấy ô nhập nhận xét.');
         await sleep(200);
+        if (location.href !== state.pageUrl) throw new Error('Trang đã đổi trong lúc mở form.');
         await clickSave(modal);
+        s.savedReview = reviewKey(s);
         done++;
         log(`⏳ Đang lưu ${done}/${todo.length}: ${s.name}`);
-        await chrome.storage.local.set({
-          [`mxra:${state.courseName}:${state.sessionLabel}:${s.name}`]: {
-            comment: s.comment,
-            savedAt: new Date().toISOString()
-          }
-        });
         await sleep(350);
       } catch (e) {
         console.error(e);

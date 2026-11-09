@@ -1,6 +1,7 @@
-(() => {
+﻿(() => {
   if (window.__MXRA_PAGE_BRIDGE__) return;
   window.__MXRA_PAGE_BRIDGE__ = true;
+  document.documentElement.dataset.mxraBridgeReady = '1';
 
   function reactPropsFor(el) {
     if (!el) return [];
@@ -135,7 +136,7 @@
     const candidates = [
       input,
       input.parentElement,
-      input.closest('label,.MuiCheckbox-root,.MuiButtonBase-root,.MuiFormControlLabel-root,[role="checkbox"]')
+      input.closest('label,.MuiCheckbox-root,.MuiRadio-root,.MuiButtonBase-root,.MuiFormControlLabel-root,[role="checkbox"],[role="radio"]')
     ].filter(Boolean);
 
     for (const target of candidates) {
@@ -155,7 +156,14 @@
 
   function setCheckbox(el, checked) {
     const input = checkboxInputFor(el);
-    if (!input) return false;
+    if (!input) {
+      if (el && el.getAttribute && el.getAttribute('role') === 'checkbox') {
+        el.setAttribute('aria-checked', checked ? 'true' : 'false');
+        el.classList.toggle('checked', Boolean(checked));
+        return true;
+      }
+      return false;
+    }
     const clickTarget = input.closest('label,.MuiCheckbox-root,.MuiButtonBase-root,.MuiFormControlLabel-root,[role="checkbox"]') || input;
     setNativeChecked(input, !checked);
     fireNativeClick(clickTarget);
@@ -170,12 +178,32 @@
 
   function setRadio(el) {
     const input = radioInputFor(el);
-    if (!input) return false;
+    if (!input) {
+      if (el && el.getAttribute && el.getAttribute('role') === 'radio') {
+        const group = el.closest('[role="radiogroup"],tr,.mxra-radio-row') || el.parentElement;
+        if (group) {
+          group.querySelectorAll('[role="radio"]').forEach(peer => {
+            peer.setAttribute('aria-checked', peer === el ? 'true' : 'false');
+            peer.classList.toggle('checked', peer === el);
+          });
+        } else {
+          el.setAttribute('aria-checked', 'true');
+        }
+        return true;
+      }
+      return false;
+    }
     const clickTarget = input.closest('label,.MuiRadio-root,.MuiButtonBase-root,.MuiFormControlLabel-root,[role="radio"]') || input;
     setNativeChecked(input, false);
     fireNativeClick(clickTarget);
     if (input.checked) return true;
 
+    if (input.name) {
+      const root = input.form || document;
+      root.querySelectorAll(`input[type="radio"][name="${CSS.escape(input.name)}"]`).forEach(peer => {
+        if (peer !== input) setNativeChecked(peer, false);
+      });
+    }
     setNativeChecked(input, true);
     input.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertReplacementText', data: 'true' }));
     input.dispatchEvent(new Event('change', { bubbles: true, cancelable: true }));
