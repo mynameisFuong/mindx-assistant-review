@@ -3,6 +3,66 @@
   window.__MXRA_PAGE_BRIDGE__ = true;
   document.documentElement.dataset.mxraBridgeReady = '1';
 
+  // The LMS deliberately keeps its review dialog open after saving. Watch the
+  // mutation response rather than treating dialog visibility as a save result.
+  let stopSaveWatch = null;
+  function reviewText(html) {
+    const node = document.createElement('div');
+    node.innerHTML = String(html || '').replace(/<\/(?:p|div|li)>|<br\s*\/?>/gi, ' ');
+    return (node.textContent || '').replace(/\s+/g, ' ').trim();
+  }
+
+  window.addEventListener('mxra:save-watch', () => {
+    stopSaveWatch?.();
+    const root = document.documentElement;
+    const token = root.getAttribute('data-mxra-save-request');
+    const expected = root.getAttribute('data-mxra-save-text');
+    if (!token || !expected) return;
+    const originalFetch = window.fetch;
+    let stopped = false;
+    const finish = result => {
+      if (stopped) return;
+      stopped = true;
+      clearTimeout(timer);
+      if (window.fetch === watchedFetch) window.fetch = originalFetch;
+      stopSaveWatch = null;
+      root.setAttribute('data-mxra-save-result', JSON.stringify({token, ...result}));
+      window.dispatchEvent(new CustomEvent('mxra:save-result'));
+    };
+    const watchedFetch = function(input, init) {
+      const response = originalFetch.apply(this, arguments);
+      // Inspect a copy; never consume or change the LMS request/response.
+      const body = typeof init?.body === 'string' ? Promise.resolve(init.body) :
+        input instanceof Request ? input.clone().text() : Promise.resolve('');
+      body.then(async raw => {
+        if (stopped) return;
+        let request;
+        try { request = JSON.parse(raw); } catch (_) { return; }
+        const payload = request?.variables?.payload;
+        const query = request?.query || '';
+        const isReview = /\bupdateSlotComment\s*\(/.test(query);
+        const isMakeup = /\bcommentMakeup\s*\(/.test(query);
+        const content = reviewText(payload?.studentComment?.content);
+        if ((!isReview && !isMakeup) || !content.includes(expected)) return;
+        try {
+          const res = await response;
+          const data = await res.clone().json();
+          const saved = isReview ? data?.data?.classes?.updateSlotComment :
+            data?.data?.studentMakeupComment?.commentMakeup;
+          finish({status: res.ok && !data.errors?.length && saved ? 'saved' : 'error'});
+        } catch (_) {
+          finish({status: 'error'});
+        }
+      }).catch(() => {});
+      return response;
+    };
+    const timer = setTimeout(() => finish({status: 'unknown'}), 30000);
+    stopSaveWatch = () => finish({status: 'cancelled'});
+    window.fetch = watchedFetch;
+  });
+
+  window.addEventListener('mxra:save-watch-cancel', () => stopSaveWatch?.());
+
   function reactPropsFor(el) {
     if (!el) return [];
     const props = [];

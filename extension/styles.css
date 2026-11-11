@@ -1,98 +1,1164 @@
-#mxra-launcher {
-  position: fixed;
-  right: 22px;
-  bottom: 22px;
-  z-index: 2147483646;
-  border: none;
-  border-radius: 999px;
-  padding: 12px 18px;
-  background: #1f6feb;
-  color: #fff;
-  font-weight: 700;
-  cursor: pointer;
-  box-shadow: 0 8px 24px rgba(0,0,0,.22);
+/* ==========================================================================
+   MindX Review Assistant — Modern UI & Micro-interactions (v0.8.2+)
+   ========================================================================== */
+
+@keyframes mxraSparkle {
+  0%, 100% { transform: scale(1) rotate(0deg); }
+  25% { transform: scale(1.18) rotate(-10deg); }
+  50% { transform: scale(0.95) rotate(8deg); }
+  75% { transform: scale(1.12) rotate(-4deg); }
 }
 
+@keyframes mxraLauncherPulse {
+  0% { box-shadow: 0 10px 28px -4px rgba(37, 99, 235, 0.55), 0 0 0 0 rgba(79, 70, 229, 0.45); }
+  70% { box-shadow: 0 10px 28px -4px rgba(37, 99, 235, 0.55), 0 0 0 10px rgba(79, 70, 229, 0); }
+  100% { box-shadow: 0 10px 28px -4px rgba(37, 99, 235, 0.55), 0 0 0 0 rgba(79, 70, 229, 0); }
+}
+
+@keyframes mxraProgressShimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+@keyframes mxraCardIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes mxraGeneratedFlash {
+  0% { box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.45), 0 8px 24px rgba(37, 99, 235, 0.16); border-color: #3b82f6; }
+  100% { box-shadow: 0 2px 6px rgba(15, 23, 42, 0.04); border-color: #e2e8f0; }
+}
+
+@keyframes mxraLogPop {
+  0% { transform: scale(0.985); opacity: 0.75; }
+  50% { transform: scale(1.01); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+@keyframes mxraErrorShake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-3px); }
+  75% { transform: translateX(3px); }
+}
+
+@keyframes mxraStatusDot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.45; transform: scale(0.82); }
+}
+
+/* Floating Launcher Button */
+#mxra-launcher {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 2147483646;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  border-radius: 999px;
+  padding: 12px 20px;
+  background: linear-gradient(135deg, #2563eb 0%, #4f46e5 55%, #7c3aed 100%);
+  color: #ffffff;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 13.5px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  box-shadow: 0 10px 28px -4px rgba(37, 99, 235, 0.55), 0 4px 12px rgba(15, 23, 42, 0.18);
+  transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.22s ease, filter 0.2s ease;
+  animation: mxraLauncherPulse 3.2s infinite;
+}
+
+#mxra-launcher:hover {
+  transform: translateY(-3px) scale(1.03);
+  filter: brightness(1.06);
+  box-shadow: 0 14px 32px -4px rgba(79, 70, 229, 0.65), 0 6px 16px rgba(15, 23, 42, 0.22);
+}
+
+#mxra-launcher:active {
+  transform: translateY(0) scale(0.97);
+}
+
+.mxra-launcher-sparkle {
+  display: inline-block;
+  font-size: 16px;
+  line-height: 1;
+  animation: mxraSparkle 2.8s ease-in-out infinite;
+}
+
+/* Main Slide-Over Drawer Panel */
 #mxra-panel {
+  --mxra-bg: #f8fafc;
+  --mxra-surface: #ffffff;
+  --mxra-border: #e2e8f0;
+  --mxra-border-strong: #cbd5e1;
+  --mxra-text: #0f172a;
+  --mxra-text-muted: #64748b;
+  --mxra-primary: #2563eb;
+  --mxra-primary-hover: #1d4ed8;
+  --mxra-indigo: #4f46e5;
+  --mxra-success: #059669;
+  --mxra-success-hover: #047857;
+  --mxra-radius: 12px;
+  --mxra-radius-sm: 8px;
+
   position: fixed;
   top: 0;
   right: 0;
-  width: 430px;
-  max-width: 92vw;
+  width: 460px;
+  max-width: 94vw;
   height: 100vh;
   z-index: 2147483647;
-  background: #fff;
-  box-shadow: -8px 0 28px rgba(0,0,0,.18);
+  background: var(--mxra-bg);
+  border-left: 1px solid rgba(226, 232, 240, 0.9);
+  box-shadow: -14px 0 42px -6px rgba(15, 23, 42, 0.18), -4px 0 14px rgba(15, 23, 42, 0.08);
   display: flex;
   flex-direction: column;
-  font-family: Arial, sans-serif;
-  color: #222;
-  transition: transform .18s ease;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  color: var(--mxra-text);
+  transform: translateX(0);
+  opacity: 1;
+  visibility: visible;
+  transition:
+    transform 0.32s cubic-bezier(0.16, 1, 0.3, 1),
+    opacity 0.22s ease,
+    visibility 0.32s;
+  overflow: hidden;
 }
 
-#mxra-panel.mxra-hidden { display: none; }
+#mxra-panel.mxra-hidden {
+  transform: translateX(104%);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
 #mxra-panel.mxra-saving {
-  transform: translateX(calc(100% - 52px));
+  transform: translateX(calc(100% - 56px));
+  box-shadow: -6px 0 24px rgba(37, 99, 235, 0.28);
+  border-left: 3px solid var(--mxra-primary);
 }
-.mxra-head { padding: 14px 16px; border-bottom: 1px solid #ddd; display:flex; align-items:center; justify-content:space-between; }
-.mxra-head h3 { margin:0; font-size:17px; }
-.mxra-close { background:transparent; border:none; font-size:22px; cursor:pointer; }
-.mxra-body { padding: 14px 16px 90px; overflow:auto; }
-.mxra-row { margin-bottom: 12px; }
-.mxra-row label { display:block; font-weight:700; font-size:12px; margin-bottom:5px; }
-.mxra-row select, .mxra-row textarea, .mxra-row input {
-  width:100%; box-sizing:border-box; border:1px solid #ccc; border-radius:8px; padding:8px; font:inherit;
+
+/* Top Animated Progress Shimmer */
+.mxra-progress-bar {
+  height: 3px;
+  width: 100%;
+  background: transparent;
+  flex-shrink: 0;
+  overflow: hidden;
+  transition: opacity 0.2s ease;
+  opacity: 0;
 }
-.mxra-row textarea { min-height:80px; resize:vertical; }
-.mxra-actions { display:flex; gap:8px; flex-wrap:wrap; }
-.mxra-btn { border:0; border-radius:8px; padding:9px 11px; cursor:pointer; font-weight:700; }
-.mxra-primary { background:#1f6feb; color:white; }
-.mxra-success { background:#238636; color:white; }
-.mxra-danger { background:#b42318; color:white; }
-.mxra-secondary { background:#eceff3; color:#222; }
-.mxra-status { font-size:12px; padding:8px 10px; background:#f6f8fa; border-radius:8px; white-space:pre-wrap; }
-.mxra-student { border:1px solid #e3e6ea; border-radius:10px; padding:10px; margin:10px 0; }
-.mxra-student-top { display:flex; align-items:center; gap:8px; margin-bottom:8px; }
-.mxra-student-name { font-weight:700; flex:1; }
-.mxra-student select { width:130px; }
-.mxra-tags { display:flex; flex-wrap:wrap; gap:6px; margin:6px 0; }
-.mxra-tag { font-size:11px; border:1px solid #ccd2da; border-radius:999px; padding:4px 7px; cursor:pointer; user-select:none; }
-.mxra-tag input { width:auto; margin-right:4px; }
-.mxra-student textarea { min-height:72px; width:100%; box-sizing:border-box; border:1px solid #ccc; border-radius:8px; padding:8px; }
-.mxra-checkpoint-box { border:1px solid #d7dde5; border-radius:8px; padding:8px; margin:8px 0; background:#fbfcfe; }
-.mxra-checkpoint-title { font-size:12px; font-weight:700; margin-bottom:7px; }
-.mxra-checkpoint-grid { display:grid; grid-template-columns:1fr 1fr 1fr; gap:7px; }
-.mxra-checkpoint-grid label { font-size:11px; font-weight:700; color:#444; }
-.mxra-checkpoint-grid input, .mxra-checkpoint-grid select { margin-top:4px; width:100%; box-sizing:border-box; border:1px solid #ccc; border-radius:8px; padding:7px; font:inherit; }
-.mxra-footer { position:absolute; bottom:0; left:0; right:0; background:white; border-top:1px solid #ddd; padding:10px 16px; display:flex; gap:8px; flex-wrap:wrap; }
-.mxra-small { font-size:11px; color:#666; line-height:1.4; }
-.mxra-pill { display:inline-block; font-size:11px; padding:3px 7px; border-radius:999px; background:#eef4ff; }
 
-#mxra-meta { max-height: 110px; overflow:auto; }
-.mxra-log { max-height: 90px; overflow:auto; margin-top:10px; }
+#mxra-panel.mxra-busy .mxra-progress-bar,
+#mxra-panel.mxra-saving .mxra-progress-bar {
+  opacity: 1;
+  background: linear-gradient(90deg, #2563eb 0%, #8b5cf6 35%, #10b981 65%, #2563eb 100%);
+  background-size: 200% 100%;
+  animation: mxraProgressShimmer 1.4s linear infinite;
+}
 
+/* Header */
+.mxra-head {
+  padding: 14px 16px;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+  border-bottom: 1px solid var(--mxra-border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.mxra-brand {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  min-width: 0;
+}
+
+.mxra-brand-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #eff6ff 0%, #e0e7ff 100%);
+  border: 1px solid #bfdbfe;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  flex-shrink: 0;
+  box-shadow: 0 2px 6px rgba(37, 99, 235, 0.12);
+}
+
+.mxra-brand-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.mxra-head h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: #0f172a;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  line-height: 1.25;
+}
+
+.mxra-brand-sub {
+  font-size: 11.5px;
+  color: var(--mxra-text-muted);
+  font-weight: 500;
+}
+
+.mxra-pill {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #dbeafe 0%, #e0e7ff 100%);
+  color: #1d4ed8;
+  border: 1px solid #bfdbfe;
+  letter-spacing: 0.02em;
+}
+
+.mxra-close {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: #f1f5f9;
+  border: 1px solid transparent;
+  color: #475569;
+  font-size: 20px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.18s ease;
+  flex-shrink: 0;
+}
+
+.mxra-close:hover {
+  background: #fee2e2;
+  color: #dc2626;
+  border-color: #fecaca;
+  transform: rotate(90deg);
+}
+
+/* Segmented Mode Tabs */
+.mxra-tabs-wrap {
+  padding: 10px 16px 8px;
+  background: #ffffff;
+  border-bottom: 1px solid var(--mxra-border);
+  flex-shrink: 0;
+}
+
+.mxra-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  background: #f1f5f9;
+  padding: 4px;
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+}
+
+.mxra-tab {
+  border: none;
+  background: transparent;
+  color: #475569;
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 8px 10px;
+  border-radius: 7px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.mxra-tab:hover:not(.mxra-tab-active):not(:disabled) {
+  color: #0f172a;
+  background: rgba(255, 255, 255, 0.55);
+}
+
+.mxra-tab.mxra-tab-active {
+  background: #ffffff;
+  color: var(--mxra-primary);
+  font-weight: 700;
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.08), 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.mxra-tab-icon {
+  font-size: 14px;
+  line-height: 1;
+}
+
+/* Keep select accessible & test-compatible while tabs handle visual switching */
+.mxra-sr-select {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Scrollable Body */
+.mxra-body {
+  padding: 14px 16px 20px;
+  overflow-y: auto;
+  flex: 1;
+  overscroll-behavior: contain;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.mxra-body::-webkit-scrollbar {
+  width: 6px;
+}
+.mxra-body::-webkit-scrollbar-track {
+  background: transparent;
+}
+.mxra-body::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 999px;
+}
+.mxra-body::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* Class Metadata Stat Grid */
+.mxra-meta-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.mxra-meta-card {
+  background: #ffffff;
+  border: 1px solid var(--mxra-border);
+  border-radius: 10px;
+  padding: 8px 11px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
+  transition: border-color 0.2s ease, transform 0.2s ease;
+}
+
+.mxra-meta-card:hover {
+  border-color: #cbd5e1;
+}
+
+.mxra-meta-label {
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--mxra-text-muted);
+}
+
+.mxra-meta-val {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #334155;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mxra-meta-val.mxra-meta-highlight {
+  color: var(--mxra-primary);
+}
+
+#mxra-meta.mxra-meta-raw {
+  display: none;
+}
+
+/* Elevated Section Cards */
+.mxra-section-card {
+  background: var(--mxra-surface);
+  border: 1px solid var(--mxra-border);
+  border-radius: var(--mxra-radius);
+  padding: 12px 14px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.mxra-section-card:focus-within {
+  border-color: #93c5fd;
+  box-shadow: 0 4px 14px rgba(37, 99, 235, 0.07);
+}
+
+.mxra-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.mxra-section-title {
+  font-size: 12.5px !important;
+  font-weight: 700 !important;
+  color: #0f172a !important;
+  margin: 0 !important;
+  display: inline-flex !important;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Form Rows & Inputs */
+.mxra-row {
+  margin-bottom: 10px;
+}
+
+.mxra-row:last-child {
+  margin-bottom: 0;
+}
+
+.mxra-row label {
+  display: block;
+  font-weight: 600;
+  font-size: 12px;
+  color: #334155;
+  margin-bottom: 5px;
+}
+
+.mxra-row select,
+.mxra-row textarea,
+.mxra-row input,
+.mxra-student select,
+.mxra-student textarea,
+.mxra-student input:not([type="checkbox"]):not([type="radio"]) {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid #cbd5e1;
+  border-radius: var(--mxra-radius-sm);
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 13px;
+  color: #0f172a;
+  background: #ffffff;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, background-color 0.18s ease;
+}
+
+.mxra-row select:hover:not(:disabled),
+.mxra-row textarea:hover:not(:disabled),
+.mxra-row input:hover:not(:disabled),
+.mxra-student select:hover:not(:disabled),
+.mxra-student textarea:hover:not(:disabled),
+.mxra-student input:not([type="checkbox"]):not([type="radio"]):hover:not(:disabled) {
+  border-color: #94a3b8;
+}
+
+.mxra-row select:focus,
+.mxra-row textarea:focus,
+.mxra-row input:focus,
+.mxra-student select:focus,
+.mxra-student textarea:focus,
+.mxra-student input:not([type="checkbox"]):not([type="radio"]):focus {
+  outline: none !important;
+  border-color: var(--mxra-primary) !important;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.16) !important;
+  background: #ffffff !important;
+}
+
+.mxra-row textarea {
+  min-height: 82px;
+  resize: vertical;
+  line-height: 1.5;
+}
+
+/* Lesson Source Badge */
 .mxra-lesson-help {
   display: flex;
   gap: 8px;
-  align-items: flex-start;
+  align-items: center;
   flex-wrap: wrap;
   margin-top: 6px;
   font-size: 11px;
-  color: #666;
+  color: var(--mxra-text-muted);
   line-height: 1.4;
 }
+
 .mxra-source {
-  display: inline-block;
-  padding: 3px 7px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
   border-radius: 999px;
+  font-size: 11px;
   font-weight: 700;
   white-space: nowrap;
+  transition: all 0.2s ease;
 }
-.mxra-source-ok { background: #eaf7ee; color: #1b7f3a; }
-.mxra-source-manual { background: #eef4ff; color: #2457a6; }
-.mxra-source-warn { background: #fff4dd; color: #8a5a00; }
 
-/* v0.5: đảm bảo ô Nội dung buổi học luôn tương tác được, kể cả khi LMS có CSS/listener toàn cục. */
+.mxra-source::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: mxraStatusDot 2s ease-in-out infinite;
+}
+
+.mxra-source-ok {
+  background: #ecfdf5;
+  color: #047857;
+  border: 1px solid #a7f3d0;
+}
+
+.mxra-source-manual {
+  background: #eff6ff;
+  color: #1d4ed8;
+  border: 1px solid #bfdbfe;
+}
+
+.mxra-source-warn {
+  background: #fffbeb;
+  color: #b45309;
+  border: 1px solid #fde68a;
+}
+
+/* Buttons */
+.mxra-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.mxra-btn {
+  border: 1px solid transparent;
+  border-radius: var(--mxra-radius-sm);
+  padding: 8px 12px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition:
+    transform 0.16s cubic-bezier(0.16, 1, 0.3, 1),
+    box-shadow 0.18s ease,
+    background 0.18s ease,
+    border-color 0.18s ease,
+    opacity 0.18s ease;
+  user-select: none;
+}
+
+.mxra-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.mxra-btn:active:not(:disabled) {
+  transform: translateY(0) scale(0.98);
+}
+
+.mxra-btn:disabled {
+  opacity: 0.58;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.mxra-primary {
+  background: linear-gradient(135deg, #2563eb 0%, #4f46e5 100%);
+  color: #ffffff;
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25);
+}
+
+.mxra-primary:hover:not(:disabled) {
+  background: linear-gradient(135deg, #1d4ed8 0%, #4338ca 100%);
+  box-shadow: 0 6px 16px rgba(37, 99, 235, 0.34);
+}
+
+.mxra-success {
+  background: linear-gradient(135deg, #059669 0%, #10b981 100%);
+  color: #ffffff;
+  box-shadow: 0 4px 12px rgba(5, 150, 105, 0.24);
+}
+
+.mxra-success:hover:not(:disabled) {
+  background: linear-gradient(135deg, #047857 0%, #059669 100%);
+  box-shadow: 0 6px 16px rgba(5, 150, 105, 0.34);
+}
+
+.mxra-danger {
+  background: #dc2626;
+  color: #ffffff;
+}
+
+.mxra-secondary {
+  background: #f1f5f9;
+  color: #334155;
+  border-color: #e2e8f0;
+  font-size: 12px;
+  padding: 6px 10px;
+}
+
+.mxra-secondary:hover:not(:disabled) {
+  background: #e2e8f0;
+  color: #0f172a;
+  border-color: #cbd5e1;
+}
+
+.mxra-btn-ghost:hover:not(:disabled) {
+  background: #fef2f2;
+  color: #dc2626;
+  border-color: #fecaca;
+}
+
+/* Empty State */
+.mxra-empty-state {
+  background: #ffffff;
+  border: 1px dashed #cbd5e1;
+  border-radius: var(--mxra-radius);
+  padding: 24px 16px;
+  text-align: center;
+  margin: 4px 0;
+}
+
+.mxra-empty-icon {
+  font-size: 26px;
+  margin-bottom: 6px;
+}
+
+.mxra-empty-title {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: #1e293b;
+  margin-bottom: 4px;
+}
+
+.mxra-empty-desc {
+  font-size: 12px;
+  color: var(--mxra-text-muted);
+  line-height: 1.5;
+}
+
+/* Student Cards */
+#mxra-students {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.mxra-student {
+  background: var(--mxra-surface);
+  border: 1px solid var(--mxra-border);
+  border-radius: var(--mxra-radius);
+  padding: 12px 13px;
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.04);
+  transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
+  animation: mxraCardIn 0.32s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation-delay: calc(var(--mxra-idx, 0) * 32ms);
+}
+
+.mxra-student:hover {
+  border-color: #cbd5e1;
+  box-shadow: 0 6px 16px -4px rgba(15, 23, 42, 0.08);
+}
+
+.mxra-student.mxra-student-saved {
+  background: linear-gradient(180deg, #f0fdf4 0%, #ffffff 65%);
+  border-color: #a7f3d0;
+}
+
+.mxra-student.mxra-student-generated {
+  animation: mxraGeneratedFlash 1.4s ease-out;
+}
+
+.mxra-student-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.mxra-student-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #eff6ff 0%, #e0e7ff 100%);
+  border: 1px solid #bfdbfe;
+  color: #1d4ed8;
+  font-size: 12px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.mxra-student-saved .mxra-student-avatar {
+  background: #d1fae5;
+  border-color: #6ee7b7;
+  color: #047857;
+}
+
+.mxra-student-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.mxra-student-name {
+  font-weight: 700;
+  font-size: 13.5px;
+  color: #0f172a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mxra-student-badges {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.mxra-att-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 1.5px 7px;
+  border-radius: 999px;
+}
+
+.mxra-att-present {
+  background: #ecfdf5;
+  color: #047857;
+  border: 1px solid #a7f3d0;
+}
+
+.mxra-att-late {
+  background: #fffbeb;
+  color: #b45309;
+  border: 1px solid #fde68a;
+}
+
+.mxra-att-absent {
+  background: #fef2f2;
+  color: #dc2626;
+  border: 1px solid #fecaca;
+}
+
+.mxra-saved-pill {
+  font-size: 11px;
+  font-weight: 700;
+  color: #047857;
+  background: #d1fae5;
+  padding: 1.5px 8px;
+  border-radius: 999px;
+  display: inline-block;
+}
+
+.mxra-saved-pill:empty {
+  display: none;
+}
+
+.mxra-student select[data-role="level"] {
+  width: 128px;
+  flex-shrink: 0;
+  font-weight: 600;
+  font-size: 12.5px;
+  padding: 6px 8px;
+}
+
+.mxra-student select[data-level="Xuất sắc"] {
+  border-color: #a7f3d0;
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.mxra-student select[data-level="Tốt"] {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.mxra-student select[data-level="Khá"] {
+  border-color: #fde68a;
+  background: #fffbeb;
+  color: #b45309;
+}
+
+.mxra-student select[data-level="Cần cố gắng"] {
+  border-color: #fecaca;
+  background: #fef2f2;
+  color: #dc2626;
+}
+
+/* Interactive Tag Chips */
+.mxra-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0;
+}
+
+.mxra-tag {
+  font-size: 11.5px;
+  font-weight: 500;
+  color: #475569;
+  background: #f8fafc;
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  padding: 4px 10px;
+  cursor: pointer;
+  user-select: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  transition: all 0.16s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.mxra-tag:hover {
+  border-color: #93c5fd;
+  background: #eff6ff;
+  color: #1e40af;
+  transform: translateY(-1px);
+}
+
+.mxra-tag input {
+  width: 13px;
+  height: 13px;
+  margin: 0;
+  accent-color: var(--mxra-primary);
+  cursor: pointer;
+}
+
+.mxra-tag.mxra-tag-active,
+.mxra-tag:has(input:checked) {
+  background: #eff6ff;
+  border-color: #3b82f6;
+  color: #1d4ed8;
+  font-weight: 600;
+  box-shadow: 0 2px 5px rgba(37, 99, 235, 0.14);
+}
+
+.mxra-note-input {
+  margin-bottom: 7px;
+  font-size: 12.5px !important;
+  background: #f8fafc !important;
+}
+
+.mxra-comment-box {
+  min-height: 84px;
+  line-height: 1.55;
+  font-size: 12.5px !important;
+  resize: vertical;
+}
+
+/* Checkpoint Box */
+.mxra-checkpoint-box {
+  border: 1px solid #c7d2fe;
+  border-radius: 10px;
+  padding: 9px 10px;
+  margin: 8px 0;
+  background: linear-gradient(135deg, #eef2ff 0%, #f5f3ff 100%);
+}
+
+.mxra-checkpoint-title {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #4338ca;
+  margin-bottom: 7px;
+}
+
+.mxra-checkpoint-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 7px;
+}
+
+.mxra-checkpoint-grid label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #3730a3;
+}
+
+.mxra-checkpoint-grid input,
+.mxra-checkpoint-grid select {
+  margin-top: 4px;
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid #a5b4fc;
+  border-radius: 7px;
+  padding: 6px 8px;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  background: #ffffff;
+}
+
+/* Parent Summary Section */
+#mxra-parent-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.mxra-summary-fields {
+  display: grid;
+  grid-template-columns: 1fr 1.35fr;
+  gap: 10px;
+}
+
+#mxra-panel .mxra-summary-fields input,
+#mxra-panel .mxra-summary-fields select {
+  min-width: 0;
+}
+
+.mxra-policy-banner {
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: #1e40af;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  padding: 7px 10px;
+  margin-bottom: 10px;
+}
+
+.mxra-policy-banner:empty {
+  display: none;
+}
+
+.mxra-summary-check {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 10px 0 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #1e293b;
+  line-height: 1.4;
+  cursor: pointer;
+  transition: border-color 0.18s ease, background-color 0.18s ease;
+}
+
+.mxra-summary-check:hover {
+  border-color: #cbd5e1;
+  background: #f1f5f9;
+}
+
+.mxra-summary-check input {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--mxra-primary);
+  cursor: pointer;
+}
+
+#mxra-summary-output {
+  line-height: 1.6;
+  font-family: inherit;
+}
+
+#mxra-summary-context {
+  margin-top: 4px;
+  font-weight: 600;
+  color: #047857;
+}
+
+/* Zalo-style Preview Card */
+.mxra-summary-preview-box {
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  background: #f1f5f9;
+  padding: 10px 12px;
+  margin-top: 10px;
+}
+
+.mxra-summary-preview-box summary {
+  cursor: pointer;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #1e293b;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  user-select: none;
+}
+
+.mxra-color-legend {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.mxra-color-legend i {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+}
+
+#mxra-summary-preview {
+  margin-top: 10px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 12px 14px;
+  font-size: 13px;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.04);
+}
+
+#mxra-summary-preview:empty::before {
+  content: 'Bản xem trước có màu chuẩn Zalo sẽ hiển thị tại đây sau khi tạo tổng kết...';
+  color: #94a3b8;
+  font-style: italic;
+  font-size: 12px;
+}
+
+#mxra-summary-preview p {
+  margin: 10px 0;
+}
+
+#mxra-summary-preview ul,
+#mxra-summary-preview ol {
+  padding-left: 22px;
+  margin: 8px 0;
+}
+
+#mxra-summary-preview li {
+  margin-bottom: 6px;
+}
+
+/* Privacy Note */
+.mxra-small {
+  font-size: 11px;
+  color: var(--mxra-text-muted);
+  line-height: 1.45;
+}
+
+.mxra-privacy-note {
+  padding: 8px 11px;
+  border-radius: 8px;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  color: #475569;
+}
+
+/* Sticky Bottom Dock: Live Status Toast + Action Footer */
+.mxra-bottom-dock {
+  background: rgba(255, 255, 255, 0.94);
+  backdrop-filter: blur(12px);
+  border-top: 1px solid var(--mxra-border);
+  padding: 10px 16px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  flex-shrink: 0;
+  box-shadow: 0 -4px 16px rgba(15, 23, 42, 0.05);
+}
+
+.mxra-status {
+  font-size: 12px;
+  line-height: 1.45;
+  padding: 8px 11px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  white-space: pre-wrap;
+  color: #334155;
+  font-weight: 500;
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+}
+
+.mxra-log {
+  max-height: 76px;
+  overflow-y: auto;
+  margin: 0;
+}
+
+.mxra-log.mxra-log-pulse {
+  animation: mxraLogPop 0.24s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+#mxra-log[data-tone="loading"] {
+  background: #eff6ff;
+  border-color: #93c5fd;
+  color: #1d4ed8;
+}
+
+#mxra-log[data-tone="success"] {
+  background: #ecfdf5;
+  border-color: #6ee7b7;
+  color: #065f46;
+}
+
+#mxra-log[data-tone="warn"] {
+  background: #fffbeb;
+  border-color: #fcd34d;
+  color: #92400e;
+}
+
+#mxra-log[data-tone="error"] {
+  background: #fef2f2;
+  border-color: #fca5a5;
+  color: #b91c1c;
+  animation: mxraErrorShake 0.3s ease;
+}
+
+#mxra-log[data-tone="mock"] {
+  background: #f5f3ff;
+  border-color: #c4b5fd;
+  color: #5b21b6;
+}
+
+.mxra-footer {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.mxra-footer .mxra-btn {
+  padding: 10px 14px;
+  font-size: 13px;
+  font-weight: 700;
+  border-radius: 9px;
+}
+
+/* v0.5+: đảm bảo ô Nội dung buổi học luôn tương tác được, kể cả khi LMS có CSS/listener toàn cục. */
 #mxra-panel #mxra-lesson {
   position: relative !important;
   z-index: 3 !important;
@@ -100,16 +1166,47 @@
   user-select: text !important;
   -webkit-user-select: text !important;
   cursor: text !important;
-  background: #fff !important;
-  min-height: 120px !important;
+  background: #ffffff !important;
+  min-height: 108px !important;
   opacity: 1 !important;
 }
 
 #mxra-panel #mxra-lesson:focus {
-  outline: 2px solid rgba(31, 111, 235, .28) !important;
-  border-color: #1f6feb !important;
+  outline: none !important;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.18) !important;
+  border-color: #2563eb !important;
+}
+
+#mxra-panel [hidden] {
+  display: none !important;
+}
+
+#mxra-panel input:not([type="checkbox"]):not([type="radio"]),
+#mxra-panel textarea {
+  pointer-events: auto !important;
+  user-select: text !important;
+  -webkit-user-select: text !important;
+  cursor: text;
 }
 
 @media (max-width: 420px) {
-  .mxra-checkpoint-grid { grid-template-columns:1fr; }
+  .mxra-checkpoint-grid,
+  .mxra-summary-fields,
+  .mxra-meta-grid,
+  .mxra-footer {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #mxra-launcher,
+  .mxra-launcher-sparkle,
+  #mxra-panel,
+  .mxra-student,
+  .mxra-log,
+  .mxra-btn,
+  .mxra-tab {
+    animation: none !important;
+    transition: none !important;
+  }
 }

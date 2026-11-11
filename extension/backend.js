@@ -4,9 +4,10 @@ const LMS = 'https://lms.mindx.edu.vn';
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
   if (sender.origin !== LMS || sender.frameId !== 0) return;
   const {type, payload, jobId} = message || {};
-  const start = type === 'mxra-generate-start';
+  const summary = type === 'mxra-summary-start';
+  const start = type === 'mxra-generate-start' || summary;
   if (!start && (type !== 'mxra-generate-status' || !/^[a-f0-9]{32}$/.test(jobId))) return;
-  const url = start ? `${API}/generate/jobs` : `${API}/generate/jobs/${jobId}`;
+  const url = start ? `${API}/${summary ? 'summary' : 'generate'}/jobs` : `${API}/generate/jobs/${jobId}`;
 
   (async () => {
     let res;

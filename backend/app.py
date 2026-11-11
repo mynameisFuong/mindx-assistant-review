@@ -10,6 +10,12 @@ from typing import Any, List
 import urllib.error
 import urllib.request
 from uuid import uuid4
+from parent_summary import (
+    ParentSummaryRequest, ParentSummaryResponse, SUMMARY_RULES, SUMMARY_SCHEMA,
+    validate_summary_request, summary_prompt, format_parent_summary,
+)
+from vietnamese_text import ensure_vietnamese_json, repair_prompt, REPAIR_RULES, VietnameseTextError
+from course_policy import course_family, course_homework_rules
 
 ENV_PATH = Path(__file__).resolve().with_name(".env")
 
@@ -189,8 +195,21 @@ else:
 
 
 SYSTEM_RULES = """
-Bạn là trợ lý viết nhận xét cuối buổi cho học viên K12 của MindX.
-Mục tiêu: viết nhận xét tiếng Việt tự nhiên, tích cực, cụ thể, phụ huynh dễ đọc.
+Bạn viết nhận xét cuối buổi thay cho một thầy giáo nam đang dạy học viên K12 tại MindX.
+Toàn bộ nhận xét phải viết bằng tiếng Việt đầy đủ dấu, đúng chính tả; không viết tiếng Việt không dấu.
+Viết bằng giọng của chính thầy: gần gũi, điềm đạm, rõ ý, như lời thầy ghi lại sau giờ học để con và phụ huynh đọc.
+Giới tính chỉ xác định cách xưng hô; không làm giọng văn cứng nhắc hay áp đặt.
+
+GIỌNG VĂN:
+- Gọi học viên là "con". Khi cần tự xưng, dùng "thầy"; không dùng "cô", "thầy cô", "giáo viên" hoặc "chúng tôi" để chỉ người viết.
+- Không cần nhắc "thầy" ở mọi đoạn. Có thể viết thẳng "Con cần...", "Khi làm bài, con nên..."; dùng "thầy" khi lời nhắc cần gần gũi hơn.
+- Dùng từ quen thuộc, câu ngắn vừa phải, mỗi câu nói một ý. Giữ thuật ngữ bài học khi cần, không diễn giải dài dòng.
+- Hạn chế câu cảm thán; thông thường không dùng dấu chấm than. Không dùng emoji, lời tung hô hoặc khẩu hiệu động viên.
+- Khen đúng việc đã làm và góp ý đúng điểm cần sửa. Tránh các cụm sáo rỗng như "phát huy tối đa tiềm năng", "hành trình khám phá", "bứt phá", "tỏa sáng", "chinh phục thử thách", "vô cùng xuất sắc".
+- Không kết đoạn bằng lời chúc hay câu động viên chung chung như "Thầy tin con sẽ ngày càng tiến bộ", "Hãy cố gắng hơn nữa nhé". Nếu cần nhắc, nói rõ con nên làm gì.
+- Tránh mở đầu máy móc "Trong buổi học hôm nay..." ở tất cả học viên, tránh lặp lại nguyên đề bài. Chỉ nhắc phần nội dung liên quan đến nhận xét.
+- Viết trực tiếp cho con. Không tự chuyển thành lời giao việc cho phụ huynh hoặc khuyên mua thiết bị, cài thêm phần mềm.
+- Không cố tìm từ đồng nghĩa cho mọi học viên. Có thể dùng lại thuật ngữ chuyên môn; chỉ thay cách diễn đạt khi phù hợp dữ liệu.
 
 BẮT BUỘC:
 - Mỗi nhận xét có đúng 3 phần, theo thứ tự:
@@ -199,19 +218,33 @@ BẮT BUỘC:
   **Điểm cần cải thiện:** ...
 
   **Lời khuyên:** ...
-- Dùng cách xưng hô "Con".
 - Bám sát nội dung buổi học được cung cấp.
+- Tuân thủ quy tắc bài tập theo mã lớp trong yêu cầu: ROB không có bài tập về nhà; C4K có bài tập trên Denise. Quy tắc này áp dụng cả phần lời khuyên và góp ý cần cải thiện.
 - Không bịa hành vi, mức độ hiểu bài, kết quả thực hành nếu dữ liệu đầu vào không nói điều đó.
 - Tag/ghi chú của giáo viên là bằng chứng để mô tả hành vi hoặc năng lực.
+- Mức đánh giá tổng quát như "Tốt" không tự chứng minh con hoàn thành bài, hiểu bài hay tham gia tích cực. Khi không có tag/ghi chú cụ thể, không khẳng định các kết quả này.
 - Nếu học viên vắng, nêu rõ không có quan sát trực tiếp và gợi ý ôn bù; không suy diễn kết quả buổi học từ mức đánh giá mặc định.
 - Nếu dữ liệu có checkpoint, dùng điểm năng lực/thực hành/trắc nghiệm như bằng chứng cụ thể; không tự suy diễn nguyên nhân điểm số.
 - Nếu không có tag/ghi chú đủ cụ thể, dùng cách diễn đạt thận trọng như "Con đã được làm quen...", "Con cần tiếp tục luyện..." thay vì khẳng định quá mức.
+- Không đưa việc thiếu dữ liệu vào nhận xét bằng các câu như "Thầy chưa ghi nhận điểm cần sửa", "Chưa có thông tin đánh giá". Khi chưa có lỗi cụ thể, phần cần cải thiện là một lời nhắc luyện kỹ năng liên quan đến bài học, không gán cho con một lỗi chưa được quan sát.
 - "Điểm cần cải thiện" không được quá nặng nề; phải có tính xây dựng.
-- "Lời khuyên" phải cụ thể, tự nhiên, ngôn ngữ gần gũi, có thể thực hiện được. Thể hiện văn bản giống lời khuyên của giáo viên, hạn chế các câu cảm thán.
+- "Lời khuyên" nêu một hoặc hai việc nhỏ con có thể làm với kiến thức, bài tập đã học. Không đưa ra yêu cầu luyện tập xa với nội dung buổi học.
 - Tránh lặp nguyên câu giữa các học viên.
-- Mỗi nhận xét khoảng 90-150 từ.
+- Mỗi phần thường hai hoặc ba câu; cả nhận xét thường khoảng 110-150 từ. Viết đủ ý để phụ huynh hiểu con đã học gì và cần luyện gì, không chỉ nêu một câu khái quát cho mỗi phần.
+- Phần điểm mạnh gắn quan sát được cung cấp với một nội dung hoặc thao tác trong bài. Phần cần cải thiện giải thích rõ điểm cần chú ý, thay vì chỉ nói "cần cố gắng". Phần lời khuyên hướng dẫn một hoặc hai bước luyện tập cụ thể và cách tự kiểm tra kết quả.
+- Khi dữ liệu ít, có thể giải thích thêm kiến thức hoặc cách ôn bài liên quan; không bịa tình tiết, kéo dài lời khen hay lặp lại cùng một ý để đủ số từ.
 - Không ghi tên học viên vì tên được giữ cục bộ trên trình duyệt.
 - Chỉ tạo nhận xét cho học viên có trong danh sách ID đầu vào.
+
+VÍ DỤ VỀ GIỌNG VĂN (chỉ học cách diễn đạt, không sao chép tình tiết):
+Nếu ghi chú cho biết con đã tạo được lớp và đối tượng, nhưng còn nhầm thuộc tính với phương thức:
+**Điểm mạnh:** Con đã tạo được lớp và đối tượng trong bài thực hành, làm đúng các bước khởi tạo đã học. Đây là phần nền tảng để con tập mô tả thông tin và hành động của một đối tượng trong chương trình.
+
+**Điểm cần cải thiện:** Con còn nhầm giữa thuộc tính và phương thức khi viết lớp. Con cần phân biệt thuộc tính dùng để lưu thông tin, còn phương thức mô tả hành động. Khi viết bài, con nên xác định hai phần này trước rồi mới đặt tên và thêm mã lệnh.
+
+**Lời khuyên:** Con mở lại bài trên lớp, đánh dấu các thuộc tính và phương thức rồi chạy thử từng phần. Sau đó, con thử thay đổi một giá trị thuộc tính và gọi một phương thức để đối chiếu kết quả. Chỗ nào chưa rõ, con ghi lại để buổi sau hỏi thầy.
+
+Trước khi trả kết quả, đọc lại để bỏ lời khen chung chung, câu cảm thán và chi tiết không có bằng chứng. Giữ nguyên ba tiêu đề và định dạng JSON được yêu cầu.
 """.strip()
 
 
@@ -315,13 +348,13 @@ def parse_json(text: str):
         return json.loads(match.group(0))
 
 
-def generation_config(student_count: int):
-    max_output_tokens = min(32768, max(4096, student_count * 450))
+def generation_config(student_count: int, system_rules=SYSTEM_RULES, response_schema=RESPONSE_SCHEMA):
+    max_output_tokens = min(32768, max(4096, student_count * 750))
     if HAS_GOOGLE_GENAI:
         return types.GenerateContentConfig(
-            system_instruction=SYSTEM_RULES,
+            system_instruction=system_rules,
             response_mime_type="application/json",
-            response_schema=RESPONSE_SCHEMA,
+            response_schema=response_schema,
             temperature=0.75,
             max_output_tokens=max_output_tokens,
             automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
@@ -337,6 +370,9 @@ def build_prompt(req: GenerateRequest, students: List[dict]) -> str:
 Thông tin lớp (không dùng để suy đoán thêm):
 - Mã/tên lớp: {req.course_name or '(không xác định)'}
 - Buổi: {req.session_label or '(không xác định)'}
+
+Quy tắc bài tập của hệ lớp (bắt buộc tuân thủ):
+{course_homework_rules(req.course_name)}
 
 Nội dung buổi học:
 {req.lesson_text}
@@ -419,6 +455,11 @@ def build_mock_comments(req: GenerateRequest, students: List[dict]) -> dict:
                 f"hoàn thành bài về nhà đầy đủ và ghi chú lại các câu hỏi phát sinh để trao đổi cùng thầy cô ở buổi tới."
             )
 
+        if course_family(req.course_name) == 'ROB':
+            advice = "**Lời khuyên:** Buổi học tiếp theo, con hãy trao đổi với thầy về phần chưa rõ và thực hành lại từng bước tại lớp để thầy hướng dẫn thêm."
+        elif course_family(req.course_name) == 'C4K':
+            advice += " Con kiểm tra và hoàn thành các bài tập được giao trên Denise."
+
         comments.append(
             {
                 "id": sid,
@@ -428,18 +469,18 @@ def build_mock_comments(req: GenerateRequest, students: List[dict]) -> dict:
     return {"comments": comments}
 
 
-def _call_gemini_rest(api_key: str, model: str, prompt: str, student_count: int) -> str:
-    cfg = generation_config(student_count)
+def _call_gemini_rest(api_key: str, model: str, prompt: str, student_count: int, system_rules=SYSTEM_RULES, response_schema=RESPONSE_SCHEMA) -> str:
+    cfg = generation_config(student_count, system_rules, response_schema)
     max_tokens = cfg["max_output_tokens"] if isinstance(cfg, dict) else cfg.max_output_tokens
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
     body = {
-        "systemInstruction": {"parts": [{"text": SYSTEM_RULES}]},
+        "systemInstruction": {"parts": [{"text": system_rules}]},
         "contents": [{"role": "user", "parts": [{"text": prompt}]}],
         "generationConfig": {
             "temperature": 0.75,
             "maxOutputTokens": max_tokens,
             "responseMimeType": "application/json",
-            "responseSchema": RESPONSE_SCHEMA,
+            "responseSchema": response_schema,
         },
     }
     req = urllib.request.Request(
@@ -464,25 +505,30 @@ def _call_gemini_rest(api_key: str, model: str, prompt: str, student_count: int)
     raise RuntimeError("Gemini không trả về nội dung văn bản.")
 
 
-def call_gemini_json(client: Any, prompt: str, student_count: int):
+def _request_gemini_json(client, model, prompt, student_count, system_rules, response_schema):
+    if HAS_GOOGLE_GENAI and not isinstance(client, dict):
+        response = client.models.generate_content(
+            model=model, contents=prompt,
+            config=generation_config(student_count, system_rules, response_schema),
+        )
+        if not response.text:
+            raise RuntimeError("Gemini không trả về nội dung văn bản.")
+        return parse_json(response.text)
+    text = _call_gemini_rest(client["api_key"], model, prompt, student_count, system_rules, response_schema)
+    return parse_json(text)
+
+
+def call_gemini_json(client: Any, prompt: str, student_count: int, system_rules=SYSTEM_RULES, response_schema=RESPONSE_SCHEMA):
     last_error = None
     tried_models = []
     for model in configured_models():
         tried_models.append(model)
         for attempt in range(MAX_RETRIES_PER_MODEL):
             try:
-                if HAS_GOOGLE_GENAI and not isinstance(client, dict):
-                    response = client.models.generate_content(
-                        model=model,
-                        contents=prompt,
-                        config=generation_config(student_count),
-                    )
-                    if not response.text:
-                        raise RuntimeError("Gemini không trả về nội dung văn bản.")
-                    return parse_json(response.text)
-                else:
-                    text = _call_gemini_rest(client["api_key"], model, prompt, student_count)
-                    return parse_json(text)
+                data = _request_gemini_json(client, model, prompt, student_count, system_rules, response_schema)
+                return ensure_vietnamese_json(data, lambda original: _request_gemini_json(
+                    client, model, repair_prompt(original), student_count, REPAIR_RULES, response_schema,
+                ))
             except Exception as exc:
                 last_error = exc
                 if is_model_not_found(exc):
@@ -498,7 +544,9 @@ def call_gemini_json(client: Any, prompt: str, student_count: int):
             break
 
     error = str(last_error).lower()
-    if any(marker in error for marker in ("api_key", "api key", "permission_denied", "401", "403")):
+    if isinstance(last_error, VietnameseTextError):
+        reason = str(last_error)
+    elif any(marker in error for marker in ("api_key", "api key", "permission_denied", "401", "403")):
         reason = "Kiểm tra khóa Gemini mới và quyền truy cập của dự án trong Google AI Studio."
     elif "429" in error or "resource_exhausted" in error:
         reason = "Đã chạm giới hạn lượt gọi hoặc hạn mức Gemini. Kiểm tra quota rồi thử lại."
@@ -603,6 +651,40 @@ def generate(req: GenerateRequest):
     return GenerateResponse(comments=[by_id[sid] for sid in input_ids], mock_mode=is_mock)
 
 
+def generate_parent_summary(req: ParentSummaryRequest):
+    try:
+        validate_summary_request(req)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    mode = os.getenv("MXRA_MOCK_GEMINI", "").strip().lower()
+    is_mock = mode in ("1", "true", "mock")
+    if mode in ("error", "mismatch"):
+        raise HTTPException(502, "Lỗi tạo tổng kết mô phỏng. Hãy thử lại.")
+    client = None if is_mock else get_client()
+    try:
+        if is_mock:
+            data = {
+                "title": req.lesson_title or "Ôn tập và thực hành",
+                "lesson_points": [req.lesson_text.strip()],
+                "remarks": [
+                    "Bản thử: buổi học giới thiệu các nội dung nêu trên và dành thời gian cho phần thực hành.",
+                    "Bản thử: nội dung thực hành giúp các con luyện cách áp dụng kiến thức vào bài tập.",
+                    "Bản thử: các con có thể xem lại từng bước và ghi lại phần chưa rõ để trao đổi với thầy.",
+                ],
+                "homework": ["Các con xem lại bài và thực hành lại các bước đã học."],
+            }
+        else:
+            data = call_gemini_json(client, summary_prompt(req), 2, SUMMARY_RULES, SUMMARY_SCHEMA)
+        try:
+            markdown = format_parent_summary(req, data)
+        except ValueError as exc:
+            raise HTTPException(502, str(exc)) from exc
+        return ParentSummaryResponse(markdown=markdown, mock_mode=is_mock)
+    finally:
+        if client is not None and not isinstance(client, dict):
+            client.close()
+
+
 # Chrome may stop the extension worker if a fetch waits too long for headers.
 _job_lock = Lock()
 _job_pool = ThreadPoolExecutor(max_workers=2)
@@ -615,6 +697,18 @@ def require_json(content_type: str = "") -> None:
 
 
 def start_job(req: GenerateRequest):
+    return submit_job(generate, req)
+
+
+def start_summary_job(req: ParentSummaryRequest):
+    try:
+        validate_summary_request(req)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    return submit_job(generate_parent_summary, req)
+
+
+def submit_job(worker, req):
     with _job_lock:
         now = time.monotonic()
         for job_id, (started, task) in list(_jobs.items()):
@@ -623,7 +717,7 @@ def start_job(req: GenerateRequest):
         if sum(not task.done() for _, task in _jobs.values()) >= 2 or len(_jobs) >= 50:
             raise HTTPException(429, "Backend đang bận. Hãy thử lại sau.")
         job_id = uuid4().hex
-        _jobs[job_id] = (now, _job_pool.submit(generate, req))
+        _jobs[job_id] = (now, _job_pool.submit(worker, req))
         return {"job_id": job_id}
 
 
@@ -645,6 +739,8 @@ if HAS_FASTAPI:
 
     app.post("/generate", response_model=GenerateResponse, dependencies=[Depends(require_json_header)])(generate)
     app.post("/generate/jobs", dependencies=[Depends(require_json_header)])(start_job)
+    app.post("/summary", response_model=ParentSummaryResponse, dependencies=[Depends(require_json_header)])(generate_parent_summary)
+    app.post("/summary/jobs", dependencies=[Depends(require_json_header)])(start_summary_job)
     app.get("/generate/jobs/{job_id}")(job_status)
 
 
@@ -675,7 +771,7 @@ class _StdlibBackendHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802
         path = self.path.split("?", 1)[0]
-        if path not in ("/generate", "/generate/jobs"):
+        if path not in ("/generate", "/generate/jobs", "/summary", "/summary/jobs"):
             self._send_json(404, {"detail": "Not Found"})
             return
 
@@ -686,7 +782,7 @@ class _StdlibBackendHandler(BaseHTTPRequestHandler):
             body = json.loads(raw_body)
             if not isinstance(body, dict):
                 raise ValueError("Payload phải là JSON object")
-            req = GenerateRequest(**body)
+            req = ParentSummaryRequest(**body) if path.startswith("/summary") else GenerateRequest(**body)
         except HTTPException as exc:
             self._send_json(exc.status_code, {"detail": exc.detail})
             return
@@ -695,7 +791,10 @@ class _StdlibBackendHandler(BaseHTTPRequestHandler):
             return
 
         try:
-            data = start_job(req) if path == "/generate/jobs" else generate(req).model_dump()
+            if path.startswith("/summary"):
+                data = start_summary_job(req) if path.endswith("/jobs") else generate_parent_summary(req).model_dump()
+            else:
+                data = start_job(req) if path == "/generate/jobs" else generate(req).model_dump()
             self._send_json(200, data)
         except HTTPException as exc:
             self._send_json(exc.status_code, {"detail": exc.detail})

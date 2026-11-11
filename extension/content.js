@@ -96,6 +96,8 @@
   function getCourseName() {
     const root = getClassDetailRoot();
     const summary = findSummaryHeading();
+    // The class list contains many codes; none is the selected class yet.
+    if (!summary) return '';
     const summaryTop = summary?.getBoundingClientRect().top ?? Number.POSITIVE_INFINITY;
     const rootRect = root?.getBoundingClientRect?.() || {top: 0};
     const codeRe = new RegExp(CLASS_CODE, 'g');
@@ -185,9 +187,9 @@
   }
 
   function getCourseFamily(courseName) {
-    const folded = foldText(courseName || '');
-    if (/\bc4k\b/.test(folded)) return 'C4K';
-    if (/\brob\b|robotics/.test(folded)) return 'ROB';
+    const name = String(courseName || '').toUpperCase();
+    if (/(?:^|[-_\s])ROB(?:OTICS)?(?=$|[-_\s]|\d)/.test(name)) return 'ROB';
+    if (/(?:^|[-_\s])C4K(?=$|[-_\s]|\d)/.test(name)) return 'C4K';
     return '';
   }
 
@@ -375,6 +377,7 @@
         button,
         container,
         attendance,
+        lmsSaved: hasLmsSavedReview(button),
         level: 'Tốt',
         tags: [],
         note: '',
@@ -387,6 +390,35 @@
     return result;
   }
 
+  function hasLmsSavedReview(button) {
+    // Read only the comment cell, not attendance ticks or product approvals.
+    const cell = button?.closest('td,[role="cell"]') || button?.parentElement;
+    if (!cell) return false;
+    return [...cell.querySelectorAll('span,div,p')].some(el =>
+      visible(el) && !isMxra(el) &&
+      /^(?:[✓✔✅]\s*)?phe duyet tu dong(?:\s*#?\s*\d+)?(?:\s*[✓✔✅])?$/.test(foldText(el.textContent))
+    );
+  }
+
+  function refreshLmsSavedReviews() {
+    for (const student of state.students) {
+      const button = findFreshReviewButton(student);
+      if (button) student.lmsSaved = hasLmsSavedReview(button);
+      updateStudentSavedStatus(student);
+    }
+  }
+
+  function updateStudentSavedStatus(student) {
+    const badge = student._card?.querySelector('[data-role="saved-status"]');
+    if (badge) badge.textContent = student.lmsSaved ? '✅ Đã lưu trên LMS — bỏ qua' : '';
+    student._card?.classList?.toggle('mxra-student-saved', Boolean(student.lmsSaved));
+    const countNode = document.querySelector('#mxra-meta-cards [data-meta="count"]');
+    if (countNode && state.students.length) {
+      const savedCount = state.students.filter(s => s.lmsSaved).length;
+      countNode.textContent = savedCount ? `${savedCount}/${state.students.length} đã lưu` : `${state.students.length} học viên`;
+    }
+  }
+
   function studentAttendance(container) {
     const lines = (container.innerText || '').split('\n').map(foldText);
     if (lines.includes('vang')) return 'Vắng';
@@ -394,51 +426,171 @@
     return 'Có mặt';
   }
 
+  function isolatePanelEvents(panel) {
+    // The LMS Dialog/Drawer traps focus using a document-level focusin listener.
+    // The panel lives outside that dialog; keep its focus events local so the
+    // LMS does not immediately move the caret back into its own form.
+    // Never preventDefault: typing, selection, IME, paste and Tab remain native.
+    const events = [
+      'focusin', 'focusout', 'pointerdown', 'pointerup', 'mousedown', 'mouseup',
+      'click', 'dblclick', 'keydown', 'keyup', 'keypress', 'beforeinput', 'input',
+      'change', 'compositionstart', 'compositionupdate', 'compositionend',
+      'paste', 'copy', 'cut'
+    ];
+    events.forEach(type => panel.addEventListener(type, event => event.stopPropagation()));
+  }
+
   function createUI() {
     const launcher = document.createElement('button');
     launcher.id = 'mxra-launcher';
-    launcher.textContent = '✨ MindX AI Review';
+    launcher.innerHTML = '<span class="mxra-launcher-sparkle" aria-hidden="true">✨</span><span class="mxra-launcher-label">MindX AI Review</span>';
     document.body.appendChild(launcher);
 
     const panel = document.createElement('div');
     panel.id = 'mxra-panel';
     panel.className = 'mxra-hidden';
+    isolatePanelEvents(panel);
     panel.innerHTML = `
+      <div class="mxra-progress-bar" aria-hidden="true"></div>
       <div class="mxra-head">
-        <h3>MindX Review Assistant <span class="mxra-pill">v${chrome.runtime.getManifest().version}</span></h3>
-        <button class="mxra-close">×</button>
+        <div class="mxra-brand">
+          <div class="mxra-brand-icon" aria-hidden="true">✨</div>
+          <div class="mxra-brand-text">
+            <h3>MindX Review Assistant <span class="mxra-pill">v${chrome.runtime.getManifest().version}</span></h3>
+            <span class="mxra-brand-sub">Trợ lý AI nhận xét &amp; tổng kết buổi học</span>
+          </div>
+        </div>
+        <button class="mxra-close" title="Thu gọn bảng điều khiển" aria-label="Đóng">×</button>
       </div>
-      <div class="mxra-body">
-        <div class="mxra-row">
-          <label>Chế độ</label>
-          <select id="mxra-mode">
-            <option value="B">B — Sinh nhận xét → duyệt → lưu</option>
-            <option value="C">C — Sinh nhận xét → tự động lưu</option>
+      <div class="mxra-tabs-wrap">
+        <div class="mxra-tabs" role="tablist" aria-label="Loại nội dung">
+          <button type="button" class="mxra-tab mxra-tab-active" data-tab="individual" role="tab" aria-selected="true">
+            <span class="mxra-tab-icon" aria-hidden="true">👨‍🎓</span>
+            <span>Nhận xét học viên</span>
+          </button>
+          <button type="button" class="mxra-tab" data-tab="parent-summary" role="tab" aria-selected="false">
+            <span class="mxra-tab-icon" aria-hidden="true">📨</span>
+            <span>Tổng kết phụ huynh</span>
+          </button>
+        </div>
+        <div class="mxra-row mxra-sr-select">
+          <label for="mxra-content-type">Loại nội dung</label>
+          <select id="mxra-content-type">
+            <option value="individual">Nhận xét từng học viên</option>
+            <option value="parent-summary">Tổng kết gửi phụ huynh</option>
           </select>
         </div>
-        <div class="mxra-row">
-          <label>Nội dung buổi học</label>
-          <textarea id="mxra-lesson" rows="6" spellcheck="true" autocomplete="off" placeholder="Extension sẽ tự đồng bộ từ mục Tổng kết/Tổng két. Nếu không đồng bộ được, bạn có thể click vào đây và nhập hoặc dán nội dung buổi học trực tiếp."></textarea>
-          <div class="mxra-lesson-help">
-            <span id="mxra-lesson-source" class="mxra-source mxra-source-warn">Nguồn: chưa có</span>
-            <span>Nếu LMS không đồng bộ được, nội dung bạn tự nhập vẫn sẽ được dùng để tạo nhận xét.</span>
+      </div>
+      <div class="mxra-body">
+        <div class="mxra-meta-grid" id="mxra-meta-cards" aria-hidden="true">
+          <div class="mxra-meta-card">
+            <span class="mxra-meta-label">Mã lớp</span>
+            <strong class="mxra-meta-val" data-meta="course">Chưa xác định</strong>
           </div>
-          <div class="mxra-actions" style="margin-top:6px">
-            <button id="mxra-scan" class="mxra-btn mxra-secondary">↻ Đồng bộ lại từ LMS</button>
-            <button id="mxra-manual-lesson" class="mxra-btn mxra-secondary" type="button">✍ Nhập thủ công</button>
-            <button id="mxra-clear-lesson" class="mxra-btn mxra-secondary" type="button">Xóa nội dung</button>
+          <div class="mxra-meta-card">
+            <span class="mxra-meta-label">Buổi học</span>
+            <strong class="mxra-meta-val" data-meta="session">Chưa xác định</strong>
+          </div>
+          <div class="mxra-meta-card">
+            <span class="mxra-meta-label">Loại form</span>
+            <strong class="mxra-meta-val" data-meta="form">Nhận xét thường</strong>
+          </div>
+          <div class="mxra-meta-card">
+            <span class="mxra-meta-label">Danh sách</span>
+            <strong class="mxra-meta-val" data-meta="count">0 học viên</strong>
           </div>
         </div>
-        <div id="mxra-meta" class="mxra-status"></div>
+        <div id="mxra-meta" class="mxra-status mxra-meta-raw"></div>
+
+        <div class="mxra-section-card">
+          <div class="mxra-section-head">
+            <label for="mxra-lesson" class="mxra-section-title">📚 Nội dung buổi học</label>
+            <span id="mxra-lesson-source" class="mxra-source mxra-source-warn">Nguồn: chưa có</span>
+          </div>
+          <div class="mxra-row" style="margin-bottom:0">
+            <textarea id="mxra-lesson" rows="5" spellcheck="true" autocomplete="off" placeholder="Extension tự đồng bộ từ mục Tổng kết/Tổng két. Nếu trống, bạn có thể click vào đây để gõ hoặc dán nội dung buổi học..."></textarea>
+            <div class="mxra-lesson-help">
+              <span>Nội dung bạn tự nhập vẫn được ưu tiên giữ nguyên khi tạo nhận xét hoặc tổng kết.</span>
+            </div>
+            <div class="mxra-actions" style="margin-top:8px">
+              <button id="mxra-scan" class="mxra-btn mxra-secondary" type="button">↻ Đồng bộ LMS</button>
+              <button id="mxra-manual-lesson" class="mxra-btn mxra-secondary" type="button">✍ Nhập thủ công</button>
+              <button id="mxra-clear-lesson" class="mxra-btn mxra-secondary mxra-btn-ghost" type="button">🗑 Xóa</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="mxra-section-card" id="mxra-individual-mode">
+          <div class="mxra-row" style="margin-bottom:0">
+            <label for="mxra-mode">⚡ Chế độ xử lý nhận xét</label>
+            <select id="mxra-mode">
+              <option value="B">B — Sinh nhận xét → duyệt trước → bấm lưu</option>
+              <option value="C">C — Sinh nhận xét → tự động điền &amp; lưu LMS</option>
+            </select>
+          </div>
+        </div>
+
+        <div id="mxra-parent-summary" hidden>
+          <div class="mxra-section-card">
+            <div class="mxra-section-head">
+              <span class="mxra-section-title">🗓 Thông tin buổi học</span>
+            </div>
+            <div class="mxra-summary-fields">
+              <div class="mxra-row"><label for="mxra-summary-session">Buổi học thứ</label><input id="mxra-summary-session" type="number" min="1" max="999" placeholder="Ví dụ: 11" /></div>
+              <div class="mxra-row"><label for="mxra-summary-date">Ngày học</label><input id="mxra-summary-date" type="date" /></div>
+            </div>
+            <div class="mxra-summary-fields">
+              <div class="mxra-row"><label for="mxra-summary-period">Buổi trong ngày</label><select id="mxra-summary-period"><option value="">Không ghi</option><option value="sáng">Sáng</option><option value="chiều">Chiều</option><option value="tối">Tối</option></select></div>
+              <div class="mxra-row"><label for="mxra-summary-title">Tiêu đề bài học</label><input id="mxra-summary-title" placeholder="Để trống để AI gợi ý" /></div>
+            </div>
+          </div>
+
+          <div class="mxra-section-card">
+            <div class="mxra-section-head">
+              <span class="mxra-section-title">📝 Ghi chú &amp; Dặn dò phụ huynh</span>
+            </div>
+            <div class="mxra-row"><label for="mxra-summary-notes">Ghi chú chung về lớp (tùy chọn)</label><textarea id="mxra-summary-notes" rows="3" placeholder="Ví dụ: lớp đang hoàn thiện chức năng chính, một số nhóm cần luyện kiểm thử. Không ghi tên học viên."></textarea></div>
+            <div id="mxra-summary-homework-policy" class="mxra-policy-banner" aria-live="polite"></div>
+            <div class="mxra-row"><label id="mxra-summary-homework-label" for="mxra-summary-homework">Dặn dò cụ thể (tùy chọn)</label><textarea id="mxra-summary-homework" rows="3" placeholder="Mỗi ý một dòng. Để trống để AI gợi ý ôn tập theo bài học."></textarea></div>
+            <div class="mxra-row"><label id="mxra-summary-notebook-label" for="mxra-summary-notebook">Link notebook của lớp (tùy chọn)</label><input id="mxra-summary-notebook" type="url" placeholder="https://..." /></div>
+            <label class="mxra-summary-check"><input id="mxra-summary-denise" type="checkbox" /><span id="mxra-summary-denise-label">Nhắc hoàn thành bài tập được giao trên Denise</span></label>
+            <div class="mxra-small">Kiểm tra số buổi, ngày học và ghi chú trước khi tạo. Bản tổng kết để bạn duyệt và sao chép gửi nhóm.</div>
+          </div>
+
+          <div class="mxra-section-card">
+            <div class="mxra-section-head">
+              <label for="mxra-summary-output" class="mxra-section-title">📄 Bản tổng kết (có thể chỉnh sửa)</label>
+            </div>
+            <div class="mxra-row" style="margin-bottom:6px"><textarea id="mxra-summary-output" rows="12" placeholder="Bản tổng kết gửi phụ huynh sẽ xuất hiện ở đây..."></textarea></div>
+            <div class="mxra-small" id="mxra-summary-context"></div>
+            <details class="mxra-summary-preview-box" open>
+              <summary>
+                <span>👁 Xem trước định dạng Zalo</span>
+                <span class="mxra-color-legend">
+                  <i style="background:#15a85f" title="Màu xanh Zalo"></i>
+                  <i style="background:#db342e" title="Màu đỏ Zalo"></i>
+                  <i style="background:#050a19" title="Màu chữ Zalo"></i>
+                </span>
+              </summary>
+              <div id="mxra-summary-preview"></div>
+            </details>
+          </div>
+        </div>
+
         <div id="mxra-students"></div>
-        <div id="mxra-log" class="mxra-status mxra-log">Sẵn sàng.</div>
-        <div class="mxra-small" style="margin-top:10px">
-          Tên học viên chỉ dùng cục bộ trong trình duyệt; backend nhận ID, mức đánh giá, tag và ghi chú để giảm dữ liệu cá nhân gửi lên AI.
+
+        <div class="mxra-privacy-note mxra-small">
+          🔒 Tên học viên chỉ lưu cục bộ trên trình duyệt; backend chỉ nhận ID thứ tự, mức đánh giá, tag và ghi chú để bảo vệ dữ liệu cá nhân.
         </div>
       </div>
-      <div class="mxra-footer">
-        <button id="mxra-generate" class="mxra-btn mxra-primary">✨ Tạo nhận xét</button>
-        <button id="mxra-save-approved" class="mxra-btn mxra-success">💾 Lưu tất cả</button>
+      <div class="mxra-bottom-dock">
+        <div id="mxra-log" class="mxra-status mxra-log" data-tone="idle">Sẵn sàng.</div>
+        <div class="mxra-footer">
+          <button id="mxra-generate" class="mxra-btn mxra-primary">✨ Tạo nhận xét</button>
+          <button id="mxra-save-approved" class="mxra-btn mxra-success">💾 Lưu tất cả</button>
+          <button id="mxra-generate-summary" class="mxra-btn mxra-primary" hidden>✨ Tạo tổng kết</button>
+          <button id="mxra-copy-summary" class="mxra-btn mxra-success" hidden>📋 Sao chép giữ màu</button>
+        </div>
       </div>`;
     document.body.appendChild(panel);
 
@@ -450,11 +602,6 @@
     panel.querySelector('#mxra-scan').onclick = scanPage;
 
     const lessonInput = panel.querySelector('#mxra-lesson');
-    // Một số listener của LMS bắt click/keydown ở document. Chặn propagation tại panel
-    // để textarea luôn focus và gõ/paste thủ công được. Không preventDefault để giữ hành vi nhập liệu.
-    ['pointerdown', 'mousedown', 'click', 'dblclick', 'keydown', 'keyup', 'paste'].forEach(type => {
-      lessonInput.addEventListener(type, e => e.stopPropagation());
-    });
     lessonInput.readOnly = false;
     lessonInput.disabled = false;
     lessonInput.addEventListener('input', e => {
@@ -484,8 +631,239 @@
       log('Đã xóa nội dung buổi học. Bạn có thể đồng bộ lại từ LMS hoặc tự nhập.');
     };
     panel.querySelector('#mxra-mode').onchange = e => { state.mode = e.target.value; };
+    const contentTypeSelect = panel.querySelector('#mxra-content-type');
+    const tabButtons = [...panel.querySelectorAll('.mxra-tab')];
+    function syncContentTypeUI(value) {
+      const summary = value === 'parent-summary';
+      ['mxra-individual-mode', 'mxra-students', 'mxra-generate', 'mxra-save-approved'].forEach(id => { panel.querySelector(`#${id}`).hidden = summary; });
+      ['mxra-parent-summary', 'mxra-generate-summary', 'mxra-copy-summary'].forEach(id => { panel.querySelector(`#${id}`).hidden = !summary; });
+      tabButtons.forEach(btn => {
+        const active = btn.dataset.tab === value;
+        btn.classList.toggle('mxra-tab-active', active);
+        btn.setAttribute('aria-selected', active ? 'true' : 'false');
+      });
+    }
+    contentTypeSelect.onchange = e => syncContentTypeUI(e.target.value);
+    tabButtons.forEach(btn => {
+      btn.onclick = () => {
+        contentTypeSelect.value = btn.dataset.tab;
+        syncContentTypeUI(btn.dataset.tab);
+      };
+    });
+    panel.querySelector('#mxra-summary-output').oninput = updateSummaryPreview;
+    panel.querySelector('#mxra-generate-summary').onclick = () => runPanelAction(generateParentSummary);
+    // Clipboard writes must start in the click handler to retain user activation.
+    panel.querySelector('#mxra-copy-summary').onclick = () => copyParentSummary().catch(error => log(`❌ ${error.message}`));
     panel.querySelector('#mxra-generate').onclick = () => runPanelAction(generateComments);
     panel.querySelector('#mxra-save-approved').onclick = () => runPanelAction(saveAllComments);
+  }
+
+  function syncSummaryFields(reset) {
+    const field = name => document.querySelector(`#mxra-summary-${name}`);
+    if (!field('session')) return;
+    if (reset) {
+      ['session', 'date', 'period', 'title', 'notes', 'homework', 'notebook'].forEach(name => { field(name).value = ''; });
+      // Keep a previously generated draft until the teacher replaces it.
+      if (field('output').value.trim()) log('Đã đổi lớp/buổi. Bản tổng kết cũ vẫn được giữ để bạn sao chép; hãy tạo lại cho buổi mới.');
+    }
+    updateHomeworkPolicy(reset);
+    if (!field('session').value) field('session').value = getSessionNumber(state.sessionLabel) || '';
+    const date = state.sessionLabel.match(/\b(\d{2})\/(\d{2})\/(\d{4})\b/);
+    if (!field('date').value && date) field('date').value = `${date[3]}-${date[2]}-${date[1]}`;
+    const time = state.sessionLabel.match(/\b(\d{1,2}):\d{2}\b/);
+    if (!field('period').value && time) field('period').value = Number(time[1]) < 12 ? 'sáng' : Number(time[1]) < 18 ? 'chiều' : 'tối';
+  }
+
+  function updateHomeworkPolicy(reset = false) {
+    const field = name => document.querySelector(`#mxra-summary-${name}`);
+    const checkbox = field('denise');
+    if (!checkbox) return;
+    const family = getCourseFamily(state.courseName);
+    checkbox.disabled = state.busy || family === 'ROB' || family === 'C4K';
+    if (family === 'ROB') checkbox.checked = false;
+    else if (family === 'C4K') checkbox.checked = true;
+    else if (reset) checkbox.checked = false;
+    const policy = field('homework-policy');
+    if (policy) policy.textContent = family === 'ROB'
+      ? 'Robotics: không có bài tập về nhà. Dặn dò chỉ chuẩn bị cho buổi học tiếp theo; không nhắc Denise.'
+      : family === 'C4K' ? 'Code for Kid: có bài tập về nhà trên Denise. Tổng kết sẽ có lời nhắc hoàn thành bài đã giao.'
+      : 'Chưa xác định hệ lớp. Chỉ bật lời nhắc Denise nếu lớp có sử dụng.';
+    const label = field('homework-label');
+    if (label) label.textContent = family === 'ROB' ? 'Dặn dò cho buổi sau (không giao bài về nhà)' : 'Dặn dò / bài tập về nhà (tùy chọn)';
+    const homework = field('homework');
+    if (homework) homework.placeholder = family === 'ROB'
+      ? 'Ví dụ: đi học đúng giờ, trao đổi với thầy phần chưa rõ và thực hành tiếp tại lớp.'
+      : 'Mỗi ý một dòng. Có thể ghi bài tập cụ thể đã giao trên Denise.';
+    const linkLabel = field('notebook-label');
+    if (linkLabel) linkLabel.textContent = family === 'ROB' ? 'Link tài liệu buổi học cho phụ huynh tham khảo (tùy chọn)' : 'Link notebook của lớp (tùy chọn)';
+    const deniseLabel = field('denise-label');
+    if (deniseLabel) deniseLabel.textContent = family === 'ROB'
+      ? 'Không áp dụng Denise cho lớp Robotics'
+      : 'Nhắc hoàn thành bài tập được giao trên Denise';
+  }
+
+  function summaryToPlainText(markdown) {
+    return String(markdown || '').replace(/\*\*/g, '');
+  }
+
+  function summaryToHtml(markdown) {
+    // Inline styles travel with the clipboard. <font color> also supports
+    // paste handlers that discard spans/styles but retain legacy text colors.
+    // Zalo PC only imports colors from its own five-color palette; arbitrary
+    // shades are discarded by its HTML paste parser.
+    const colors = {body: '#050a19', green: '#15a85f', red: '#db342e', link: '#0068ff'};
+    const paint = (color, html) => `<span style="color:${color}"><font color="${color}">${html}</font></span>`;
+    const inline = line => escapeHtml(line)
+      .replace(/\*\*([^\n]+?)\*\*/g, '<strong>$1</strong>')
+      .replace(/https?:\/\/[^\s<>]+/g, url => `<a href="${url}" style="color:${colors.link};text-decoration:underline">${paint(colors.link, url)}</a>`);
+    function paragraph(line) {
+      const plain = summaryToPlainText(line).trim();
+      const folded = foldText(plain);
+      const heading = plain.match(/^((?:(?:📌|📍)\s*)?(?:Nội dung buổi học|Nhận xét|Dặn dò)\s*:)(.*)$/iu);
+      if (heading) {
+        return `<p style="margin:16px 0 10px"><strong>${paint(colors.red, escapeHtml(heading[1]))}${heading[2] ? paint(colors.body, inline(heading[2])) : ''}</strong></p>`;
+      }
+      const color = folded.includes('kinh gui phu huynh') || /^(?:cam on quy phu huynh|tran trong)/.test(folded) ? colors.green : colors.body;
+      return `<p style="margin:12px 0">${paint(color, inline(line))}</p>`;
+    }
+    const blocks = [];
+    let list = null;
+    for (const line of String(markdown || '').split('\n')) {
+      const kind = /^\d+\.\s/.test(line) ? 'ol' : /^-\s/.test(line) ? 'ul' : null;
+      if (!kind && !line.trim()) continue;
+      if (kind !== list) {
+        if (list) blocks.push(`</${list}>`);
+        if (kind) blocks.push(`<${kind}>`);
+        list = kind;
+      }
+      if (kind) blocks.push(`<li>${paint(colors.body, inline(line.replace(/^(?:\d+\.|-)\s+/, '')))}</li>`);
+      else blocks.push(paragraph(line));
+    }
+    if (list) blocks.push(`</${list}>`);
+    return blocks.join('');
+  }
+
+  function copyRichSummaryNative(html) {
+    // Native browser selection copy gives desktop apps the clipboard formats
+    // Chrome supports on the current OS, rather than writing only HTML/plain.
+    if (typeof document.execCommand !== 'function' || !window.getSelection || !document.createRange) return false;
+    const selection = window.getSelection();
+    if (!selection) return false;
+    const previousRanges = Array.from({length: selection.rangeCount}, (_, i) => selection.getRangeAt(i).cloneRange());
+    const active = document.activeElement;
+    const start = active?.selectionStart;
+    const end = active?.selectionEnd;
+    const area = document.createElement('div');
+    area.contentEditable = 'true';
+    area.setAttribute('aria-label', 'Nội dung sao chép tổng kết');
+    area.style.cssText = 'position:fixed;left:-10000px;top:0;width:640px;font:14px Arial,sans-serif;line-height:1.6;background:#fff;user-select:text;';
+    area.innerHTML = html;
+    (document.querySelector('#mxra-panel') || document.body).appendChild(area);
+    try {
+      area.focus({preventScroll: true});
+      const range = document.createRange();
+      range.selectNodeContents(area);
+      selection.removeAllRanges();
+      selection.addRange(range);
+      return document.execCommand('copy');
+    } catch (_) {
+      return false;
+    } finally {
+      area.remove();
+      active?.focus?.({preventScroll: true});
+      selection.removeAllRanges();
+      previousRanges.forEach(range => selection.addRange(range));
+      if (typeof start === 'number' && typeof end === 'number') {
+        try { active.setSelectionRange(start, end); } catch (_) {}
+      }
+    }
+  }
+
+  function updateSummaryPreview() {
+    const output = document.querySelector('#mxra-summary-output');
+    const preview = document.querySelector('#mxra-summary-preview');
+    if (preview) preview.innerHTML = summaryToHtml(output?.value || '');
+  }
+
+  async function waitForBackendJob(type, payload) {
+    const {job_id: jobId} = await askBackend({type, payload});
+    const deadline = Date.now() + 360000;
+    while (Date.now() < deadline) {
+      await sleep(1500);
+      requireCurrentPage();
+      const poll = await askBackend({type: 'mxra-generate-status', jobId});
+      if (poll.status === 'done') return poll.result;
+    }
+    throw new Error('Đã hết thời gian chờ Gemini. Thử lại sau.');
+  }
+
+  async function generateParentSummary() {
+    requireCurrentPage();
+    updateHomeworkPolicy();
+    const value = name => document.querySelector(`#mxra-summary-${name}`).value.trim();
+    const payload = {
+      lesson_text: document.querySelector('#mxra-lesson').value.trim(),
+      course_name: state.courseName,
+      session_number: value('session'), study_date: value('date'), study_period: value('period'),
+      lesson_title: value('title'), class_notes: value('notes'), homework: value('homework'),
+      notebook_url: value('notebook'), remind_denise: document.querySelector('#mxra-summary-denise').checked
+    };
+    if (!payload.lesson_text) throw new Error('Hãy đồng bộ hoặc nhập nội dung buổi học.');
+    if (!/^\d+$/.test(payload.session_number) || Number(payload.session_number) < 1 || Number(payload.session_number) > 999) throw new Error('Hãy nhập số buổi học từ 1 đến 999.');
+    if (!payload.study_date) throw new Error('Hãy chọn ngày học trước khi tạo tổng kết.');
+    if (payload.notebook_url) {
+      let url;
+      try { url = new URL(payload.notebook_url); } catch (_) { throw new Error('Link notebook không hợp lệ.'); }
+      if (!['https:', 'http:'].includes(url.protocol)) throw new Error('Link notebook phải bắt đầu bằng http hoặc https.');
+    }
+    log('⏳ Đang viết tổng kết gửi phụ huynh...');
+    const data = await waitForBackendJob('mxra-summary-start', payload);
+    requireCurrentPage();
+    if (typeof data.markdown !== 'string' || !data.markdown.trim()) throw new Error('Backend chưa trả nội dung tổng kết.');
+    document.querySelector('#mxra-summary-output').value = data.markdown;
+    document.querySelector('#mxra-summary-output').dataset.mock = data.mock_mode ? '1' : '0';
+    document.querySelector('#mxra-summary-context').textContent = `${data.mock_mode ? '🧪 Bản thử — không dùng để gửi. ' : ''}Bản nháp cho ${payload.course_name || 'lớp đang chọn'}, buổi ${payload.session_number}, ngày ${payload.study_date}.`;
+    updateSummaryPreview();
+    log(data.mock_mode ? '🧪 Đã tạo bản tổng kết thử. Hãy tắt chế độ thử để tạo bản thật.' : '✅ Đã tạo tổng kết. Bạn đọc, chỉnh lại rồi bấm Sao chép giữ màu để gửi nhóm.');
+  }
+
+  async function copyParentSummary() {
+    const output = document.querySelector('#mxra-summary-output');
+    const markdown = output.value.trim();
+    if (!markdown) throw new Error('Chưa có tổng kết để sao chép.');
+    if (output.dataset.mock === '1') throw new Error('Bản thử chưa được sao chép để gửi. Hãy tạo tổng kết ở chế độ thật.');
+    const plain = summaryToPlainText(markdown);
+    const html = summaryToHtml(markdown);
+    if (copyRichSummaryNative(html)) {
+      log('✅ Đã sao chép bản có màu. Trong Zalo, bật soạn thảo định dạng (biểu tượng A) rồi dán bằng ⌘V hoặc Ctrl+V.');
+      return;
+    }
+    let rich = false;
+    try {
+      if (typeof ClipboardItem !== 'undefined' && navigator.clipboard?.write) {
+        await navigator.clipboard.write([new ClipboardItem({
+          'text/html': new Blob([html], {type: 'text/html'}),
+          'text/plain': new Blob([plain], {type: 'text/plain'})
+        })]);
+        rich = true;
+      } else {
+        await navigator.clipboard.writeText(plain);
+      }
+    } catch (_) {
+      const preview = document.querySelector('#mxra-summary-preview');
+      if (preview && window.getSelection && document.createRange) {
+        preview.innerHTML = html;
+        preview.scrollIntoView({block: 'center'});
+        const range = document.createRange();
+        range.selectNodeContents(preview);
+        const selection = window.getSelection();
+        selection.removeAllRanges(); selection.addRange(range);
+        throw new Error('Trình duyệt chưa cho sao chép tự động. Bản có màu đã được chọn trong phần xem trước; bấm ⌘C hoặc Ctrl+C để sao chép.');
+      }
+      output.focus(); output.select();
+      throw new Error('Trình duyệt chưa cho sao chép. Hãy sao chép từ phần Xem trước định dạng để giữ màu chữ.');
+    }
+    log(rich ? '✅ Đã sao chép bản có màu. Trong Zalo, bật soạn thảo định dạng (biểu tượng A) rồi dán bằng ⌘V hoặc Ctrl+V.' : '⚠️ Trình duyệt chỉ hỗ trợ sao chép văn bản thuần. Muốn giữ màu, hãy chọn và sao chép nội dung ở phần Xem trước định dạng.');
   }
 
   function updateLessonSource(source) {
@@ -507,56 +885,92 @@
   function log(msg) {
     // Luôn REPLACE status hiện tại, tuyệt đối không append.
     const el = document.querySelector('#mxra-log');
-    if (el) el.textContent = String(msg || '');
+    const text = String(msg || '');
+    if (!el) return;
+    el.textContent = text;
+    if (el.dataset) {
+      let tone = 'idle';
+      if (/^(?:⏳|🔎)/.test(text)) tone = 'loading';
+      else if (/^✅/.test(text)) tone = 'success';
+      else if (/^⚠️/.test(text)) tone = 'warn';
+      else if (/^❌/.test(text)) tone = 'error';
+      else if (/^🧪/.test(text)) tone = 'mock';
+      el.dataset.tone = tone;
+    }
+    if (el.classList) {
+      el.classList.remove('mxra-log-pulse');
+      void el.offsetWidth;
+      el.classList.add('mxra-log-pulse');
+    }
   }
 
   function renderStudents() {
     const root = document.querySelector('#mxra-students');
     root.innerHTML = '';
     if (!state.students.length) {
-      root.innerHTML = '<div class="mxra-status" style="margin:10px 0">Chưa tìm thấy nút “Nhận xét học sinh”. Hãy mở tab Nhận xét và chọn một buổi học.</div>';
+      root.innerHTML = `
+        <div class="mxra-empty-state">
+          <div class="mxra-empty-icon" aria-hidden="true">📋</div>
+          <div class="mxra-empty-title">Chưa tìm thấy danh sách học viên</div>
+          <div class="mxra-empty-desc">Hãy mở tab <strong>Nhận xét</strong> trên LMS và chọn một buổi học, hoặc chuyển sang tab <strong>Tổng kết phụ huynh</strong>.</div>
+        </div>`;
       return;
     }
 
-    for (const s of state.students) {
+    state.students.forEach((s, idx) => {
       if (state.isCheckpoint) applyCheckpointDefaults(s);
       const card = document.createElement('div');
-      card.className = 'mxra-student';
+      card.className = `mxra-student${s.lmsSaved ? ' mxra-student-saved' : ''}`;
+      card.style.setProperty('--mxra-idx', String(idx));
+      const attendanceTone = s.attendance === 'Vắng' ? 'absent' : s.attendance === 'Đi muộn' ? 'late' : 'present';
       card.innerHTML = `
         <div class="mxra-student-top">
-          <div class="mxra-student-name">${escapeHtml(s.name)}</div>
-          <select data-role="level">
+          <div class="mxra-student-avatar" aria-hidden="true">${idx + 1}</div>
+          <div class="mxra-student-info">
+            <div class="mxra-student-name">${escapeHtml(s.name)}</div>
+            <div class="mxra-student-badges">
+              <span class="mxra-att-badge mxra-att-${attendanceTone}">${escapeHtml(s.attendance)}</span>
+              <span class="mxra-saved-pill" data-role="saved-status">${s.lmsSaved ? '✅ Đã lưu trên LMS — bỏ qua' : ''}</span>
+            </div>
+          </div>
+          <select data-role="level" data-level="${escapeHtml(s.level)}">
             <option>Xuất sắc</option><option selected>Tốt</option><option>Khá</option><option>Cần cố gắng</option>
           </select>
         </div>
         ${state.isCheckpoint ? `
           <div class="mxra-checkpoint-box">
-            <div class="mxra-checkpoint-title">Checkpoint</div>
+            <div class="mxra-checkpoint-title">🎯 Điểm đánh giá định kỳ (Checkpoint)</div>
             <div class="mxra-checkpoint-grid">
               <label>Điểm năng lực
                 <select data-role="checkpoint-ability">
-                  ${[1,2,3,4,5].map(v => `<option value="${v}" ${Number(s.checkpointAbility) === v ? 'selected' : ''}>${v}</option>`).join('')}
+                  ${[1,2,3,4,5].map(v => `<option value="${v}" ${Number(s.checkpointAbility) === v ? 'selected' : ''}>${v} / 5</option>`).join('')}
                 </select>
               </label>
-              <label>Thực hành
+              <label>Thực hành (0–5)
                 <input data-role="checkpoint-practice" type="number" min="0" max="5" step="0.5" value="${escapeHtml(s.checkpointPractice)}" />
               </label>
-              <label>Trắc nghiệm đúng
+              <label>Trắc nghiệm (0–10)
                 <input data-role="checkpoint-quiz" type="number" min="0" max="10" step="1" value="${escapeHtml(s.checkpointQuizCorrect)}" />
               </label>
             </div>
           </div>
         ` : ''}
-        <div class="mxra-tags">${TAGS.map(t => `<label class="mxra-tag"><input type="checkbox" value="${t}">${t}</label>`).join('')}</div>
-        <input data-role="note" placeholder="Ghi chú riêng (tùy chọn): ví dụ cần nhắc làm bài, hay mất tập trung..." />
-        <textarea data-role="comment" placeholder="Nhận xét AI sẽ xuất hiện ở đây..."></textarea>
+        <div class="mxra-tags">${TAGS.map(t => `<label class="mxra-tag${s.tags.includes(t) ? ' mxra-tag-active' : ''}"><input type="checkbox" value="${t}"><span>${t}</span></label>`).join('')}</div>
+        <input data-role="note" class="mxra-note-input" placeholder="Ghi chú riêng (tùy chọn): ví dụ cần nhắc làm bài, hay mất tập trung..." />
+        <textarea data-role="comment" class="mxra-comment-box" placeholder="Nhận xét AI sẽ xuất hiện ở đây..."></textarea>
       `;
-      card.querySelector('[data-role="level"]').value = s.level;
+      const levelSelect = card.querySelector('[data-role="level"]');
+      levelSelect.value = s.level;
+      levelSelect.dataset.level = s.level;
       card.querySelector('[data-role="note"]').value = s.note;
       card.querySelector('[data-role="comment"]').value = s.comment;
-      card.querySelectorAll('.mxra-tag input').forEach(cb => { cb.checked = s.tags.includes(cb.value); });
-      card.querySelector('[data-role="level"]').onchange = e => {
+      card.querySelectorAll('.mxra-tag input').forEach(cb => {
+        cb.checked = s.tags.includes(cb.value);
+        cb.closest('.mxra-tag')?.classList.toggle('mxra-tag-active', cb.checked);
+      });
+      levelSelect.onchange = e => {
         s.level = e.target.value;
+        levelSelect.dataset.level = s.level;
         if (state.isCheckpoint) {
           applyCheckpointDefaults(s, true);
           card.querySelector('[data-role="checkpoint-ability"]').value = String(s.checkpointAbility);
@@ -571,12 +985,13 @@
       }
       card.querySelector('[data-role="note"]').oninput = e => s.note = e.target.value;
       card.querySelectorAll('.mxra-tag input').forEach(cb => cb.onchange = () => {
+        cb.closest('.mxra-tag')?.classList.toggle('mxra-tag-active', cb.checked);
         s.tags = [...card.querySelectorAll('.mxra-tag input:checked')].map(x => x.value);
       });
       card.querySelector('[data-role="comment"]').oninput = e => s.comment = e.target.value;
       s._card = card;
       root.appendChild(card);
-    }
+    });
   }
 
   function scanPage() {
@@ -599,13 +1014,14 @@
     state.students = students.map(s => {
       const old = previous.get(s.button);
       if (old?.name !== s.name || old.attendance !== s.attendance) return s;
-      return {...old, id: s.id, container: s.container};
+      return {...old, id: s.id, container: s.container, lmsSaved: s.lmsSaved};
     });
     if (!state.students.some(s => s.comment)) state.mockDrafts = false;
     state.pageUrl = location.href;
     state.courseName = courseName;
     state.sessionLabel = sessionLabel;
     state.isCheckpoint = checkpoint;
+    syncSummaryFields(!samePage);
 
     if (autoLesson && !manualBeforeScan) {
       state.lessonText = autoLesson;
@@ -632,6 +1048,21 @@
         `Form: ${checkpoint ? 'Checkpoint' : 'Nhận xét thường'}`,
         `Học viên tìm thấy: ${students.length}`
       ].join('\n');
+    }
+    const metaCards = document.querySelector('#mxra-meta-cards');
+    if (metaCards) {
+      const savedCount = state.students.filter(s => s.lmsSaved).length;
+      const setMeta = (key, val, highlight = false) => {
+        const node = metaCards.querySelector(`[data-meta="${key}"]`);
+        if (node) {
+          node.textContent = val;
+          node.classList.toggle('mxra-meta-highlight', highlight);
+        }
+      };
+      setMeta('course', courseName || 'Chưa xác định', Boolean(courseName));
+      setMeta('session', sessionLabel || 'Chưa xác định', Boolean(sessionLabel));
+      setMeta('form', checkpoint ? '🎯 Checkpoint' : '📝 Nhận xét thường', checkpoint);
+      setMeta('count', savedCount ? `${savedCount}/${students.length} đã lưu` : `${students.length} học viên`, students.length > 0);
     }
 
     renderStudents();
@@ -665,8 +1096,11 @@
 
   async function runPanelAction(action) {
     if (state.busy) return;
+    const panel = document.querySelector('#mxra-panel');
     const controls = [...document.querySelectorAll('#mxra-panel button, #mxra-panel select, #mxra-panel input, #mxra-panel textarea')];
     state.busy = true;
+    panel?.classList?.add('mxra-busy');
+    const disabledBefore = controls.map(el => el.disabled);
     controls.forEach(el => { el.disabled = true; });
     try {
       await action();
@@ -674,12 +1108,24 @@
       log(`❌ ${e.message}`);
     } finally {
       state.busy = false;
-      controls.forEach(el => { el.disabled = false; });
+      panel?.classList?.remove('mxra-busy');
+      controls.forEach((el, index) => { el.disabled = disabledBefore[index]; });
     }
   }
 
   async function askBackend(message) {
-    const response = await chrome.runtime.sendMessage(message);
+    const reloadMessage = 'Tiện ích vừa được cập nhật hoặc mất kết nối với tab này. Hãy tải lại tab LMS bằng ⌘⇧R (Mac) hoặc Ctrl+Shift+R (Windows), rồi mở lại MindX AI Review.';
+    const runtime = globalThis.chrome?.runtime;
+    if (!runtime?.id || typeof runtime.sendMessage !== 'function') throw new Error(reloadMessage);
+    let response;
+    try {
+      response = await runtime.sendMessage(message);
+    } catch (error) {
+      if (/extension context invalidated|context has been invalidated/i.test(error.message || '')) {
+        throw new Error(reloadMessage);
+      }
+      throw error;
+    }
     if (!response?.data) throw new Error(response?.error || 'Không liên lạc được với tiện ích. Hãy tải lại extension và tab LMS.');
     return response.data;
   }
@@ -715,11 +1161,15 @@
 
     state.students.forEach(readStudentCard);
 
+    refreshLmsSavedReviews();
+    const studentsToGenerate = state.students.filter(s => !s.lmsSaved);
+    if (!studentsToGenerate.length) return log('✅ Tất cả học viên đã có nhận xét lưu trên LMS.');
+
     const payload = {
       lesson_text: lessonText,
       course_name: state.courseName,
       session_label: state.sessionLabel,
-      students: state.students.map(s => ({
+      students: studentsToGenerate.map(s => ({
         id: s.id,
         attendance: s.attendance,
         level: s.level,
@@ -731,31 +1181,25 @@
       }))
     };
 
-    log(`⏳ Đang tạo ${state.students.length} nhận xét...`);
+    log(`⏳ Đang tạo ${studentsToGenerate.length} nhận xét; bỏ qua ${state.students.length - studentsToGenerate.length} học viên đã lưu trên LMS.`);
     try {
-      const {job_id: jobId} = await askBackend({type: 'mxra-generate-start', payload});
-      let data;
-      const deadline = Date.now() + 360000;
-      while (Date.now() < deadline) {
-        await sleep(1500);
-        requireCurrentPage();
-        const poll = await askBackend({type: 'mxra-generate-status', jobId});
-        if (poll.status === 'done') {
-          data = poll.result;
-          break;
-        }
-      }
-      if (!data) throw new Error('Đã hết thời gian chờ Gemini. Thử lại sau.');
+      const data = await waitForBackendJob('mxra-generate-start', payload);
       requireCurrentPage();
       const byId = new Map((data.comments || []).map(x => [x.id, x.comment]));
-      if (byId.size !== state.students.length || state.students.some(s => !byId.get(s.id)?.trim())) {
+      if (byId.size !== studentsToGenerate.length || studentsToGenerate.some(s => !byId.get(s.id)?.trim())) {
         throw new Error('Backend trả thiếu nhận xét. Hãy thử tạo lại.');
       }
       state.mockDrafts = data.mock_mode === true;
-      for (const s of state.students) {
+      for (const s of studentsToGenerate) {
         s.comment = byId.get(s.id) || '';
         s.savedReview = null;
-        if (s._card) s._card.querySelector('[data-role="comment"]').value = s.comment;
+        if (s._card) {
+          const box = s._card.querySelector('[data-role="comment"]');
+          if (box) box.value = s.comment;
+          s._card.classList.remove('mxra-student-generated');
+          void s._card.offsetWidth;
+          s._card.classList.add('mxra-student-generated');
+        }
       }
       if (state.mockDrafts) return log('🧪 Đã tạo nhận xét thử. Chế độ thử không cho lưu vào LMS.');
       log('✅ Đã tạo nhận xét. Bạn có thể sửa trực tiếp trước khi lưu.');
@@ -1561,7 +2005,84 @@
     throw new Error(`Không mở được modal của ${student.name}`);
   }
 
-  async function clickSave(modal) {
+  function watchReviewSave(comment) {
+    if (document.documentElement.dataset.mxraBridgeReady !== '1') {
+      throw new Error('Chưa có cầu nối xác nhận lưu. Hãy tải lại extension và trang LMS.');
+    }
+    const root = document.documentElement;
+    const token = `mxra-save-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    let result = null;
+    function onResult() {
+      try {
+        const data = JSON.parse(root.getAttribute('data-mxra-save-result'));
+        if (data?.token === token) result = data;
+      } catch (_) {}
+    }
+    window.addEventListener('mxra:save-result', onResult);
+    root.setAttribute('data-mxra-save-request', token);
+    root.setAttribute('data-mxra-save-text', norm(comment.replace(/\*\*/g, '')));
+    window.dispatchEvent(new CustomEvent('mxra:save-watch'));
+    return {
+      get result() { return result; },
+      close() {
+        window.dispatchEvent(new CustomEvent('mxra:save-watch-cancel'));
+        window.removeEventListener('mxra:save-result', onResult);
+        ['request', 'text', 'result'].forEach(key => root.removeAttribute(`data-mxra-save-${key}`));
+      }
+    };
+  }
+
+  async function closeSavedReview(modal) {
+    if (!visible(modal) || !modal.isConnected) return true;
+    const root = modal.closest('.MuiDialog-root');
+    if (!root) return false;
+    const paper = root.querySelector('[role="dialog"],.MuiDialog-paper') || modal;
+    const layers = [...root.querySelectorAll('.MuiDialog-container,.MuiBackdrop-root')];
+    const panel = document.querySelector('#mxra-panel');
+    const wasSaving = panel?.classList.contains('mxra-saving');
+    panel?.classList.add('mxra-saving');
+    try {
+      await sleep(200);
+      let outside = null;
+      for (const layer of layers) {
+        const rect = layer.getBoundingClientRect();
+        const left = Math.max(0, rect.left) + 4;
+        const right = Math.min(window.innerWidth, rect.right) - 4;
+        const top = Math.max(0, rect.top) + 4;
+        const bottom = Math.min(window.innerHeight, rect.bottom) - 4;
+        if (right <= left || bottom <= top) continue;
+        for (const [x, y] of [[left, top], [left, (top + bottom) / 2], [right, top], [left, bottom], [right, bottom]]) {
+          const hit = document.elementFromPoint(x, y);
+          // Only click this review's overlay, never a control underneath it,
+          // the review paper, or the class detail drawer's backdrop.
+          if (layers.includes(hit) && !paper.contains(hit) && !isMxra(hit)) {
+            outside = {target: hit, x, y};
+            break;
+          }
+        }
+        if (outside) break;
+      }
+      if (!outside) return false;
+      const {target, x, y} = outside;
+      // MUI records mousedown on the container before accepting a backdrop click.
+      for (const type of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click']) {
+        const EventCtor = type.startsWith('pointer') && window.PointerEvent ? PointerEvent : MouseEvent;
+        target.dispatchEvent(new EventCtor(type, {
+          bubbles: true, cancelable: true, view: window,
+          clientX: x, clientY: y, button: 0, buttons: type.endsWith('down') ? 1 : 0
+        }));
+      }
+      for (let i = 0; i < 20; i++) {
+        await sleep(150);
+        if (!visible(modal) || !modal.isConnected || !findVisibleModal()) return true;
+      }
+      return false;
+    } finally {
+      if (!wasSaving) panel?.classList.remove('mxra-saving');
+    }
+  }
+
+  async function clickSave(modal, comment, isRowSaved = () => false) {
     const btn = [...modal.querySelectorAll('button,input[type="button"],input[type="submit"],[role="button"]')]
       .find(b => isVisibleControl(b) && foldText(b.value || b.textContent) === 'luu');
     if (!btn) throw new Error('Không tìm thấy nút Lưu trong modal.');
@@ -1570,23 +2091,40 @@
     if (!btn.isConnected || btn.disabled || btn.getAttribute('aria-disabled') === 'true') {
       throw new Error('Nút Lưu đang bị khóa. Kiểm tra các trường bắt buộc trong form.');
     }
-    btn.click();
-    for (let i=0; i<70; i++) {
-      await sleep(150);
-      if (!visible(modal) || !document.body.contains(modal)) return;
+    const hadSavedMarker = isRowSaved();
+    const watch = watchReviewSave(comment);
+    let saved = false;
+    try {
+      btn.click();
+      for (let i = 0; i < 205; i++) {
+        await sleep(150);
+        if (watch.result?.status === 'error') {
+          throw new Error('LMS trả lỗi khi lưu nhận xét. Kiểm tra thông báo lỗi trên LMS rồi thử lại.');
+        }
+        if (watch.result?.status === 'saved' || (!hadSavedMarker && isRowSaved())) {
+          saved = true;
+          break;
+        }
+        if (watch.result?.status === 'unknown') break;
+      }
+    } finally {
+      watch.close();
     }
-    throw new Error('LMS chưa đóng form sau khi bấm Lưu. Có thể còn trường bắt buộc chưa được tick/điền.');
+    if (!saved) throw new Error('Chưa xác nhận được LMS đã lưu. Hãy kiểm tra nhận xét trên LMS trước khi thử lại.');
+    return closeSavedReview(modal);
   }
 
   async function saveAllComments() {
     if (state.mockDrafts) return log('🧪 Nhận xét thử không được lưu vào LMS. Hãy tắt chế độ thử và tạo lại.');
     requireCurrentPage();
     state.students.forEach(readStudentCard);
+    refreshLmsSavedReviews();
     const reviewKey = s => JSON.stringify([s.comment, s.checkpointAbility, s.checkpointPractice, s.checkpointQuizCorrect]);
-    const todo = state.students.filter(s => s.comment && reviewKey(s) !== s.savedReview);
-    if (!todo.length) return log('⚠️ Không có nhận xét mới để lưu.');
+    const alreadySaved = state.students.filter(s => s.lmsSaved).length;
+    const todo = state.students.filter(s => !s.lmsSaved && s.comment && reviewKey(s) !== s.savedReview);
+    if (!todo.length) return log(`✅ Không có nhận xét mới cần lưu. Đã có ${alreadySaved}/${state.students.length} học viên được LMS đánh dấu đã lưu.`);
 
-    log(`⏳ Đang lưu 0/${todo.length}...`);
+    log(`⏳ Đang lưu 0/${todo.length}; bỏ qua ${alreadySaved} học viên đã lưu trên LMS.`);
     let done = 0;
     for (const s of todo) {
       try {
@@ -1605,9 +2143,15 @@
         if (!ok) throw new Error('Không tìm thấy ô nhập nhận xét.');
         await sleep(200);
         if (location.href !== state.pageUrl) throw new Error('Trang đã đổi trong lúc mở form.');
-        await clickSave(modal);
+        const closed = await clickSave(modal, s.comment, () => hasLmsSavedReview(findFreshReviewButton(s)));
         s.savedReview = reviewKey(s);
+        s.lmsSaved = true;
+        updateStudentSavedStatus(s);
         done++;
+        if (!closed) {
+          log(`⚠️ Đã lưu ${done}/${todo.length}. LMS đã xác nhận lưu ${s.name}, nhưng chưa đóng được form. Hãy đóng form rồi bấm Lưu tất cả để tiếp tục.`);
+          return;
+        }
         log(`⏳ Đang lưu ${done}/${todo.length}: ${s.name}`);
         await sleep(350);
       } catch (e) {
@@ -1616,7 +2160,7 @@
         return;
       }
     }
-    log(`✅ Hoàn tất: đã lưu ${done}/${todo.length} nhận xét.`);
+    log(`✅ Hoàn tất: đã lưu thêm ${done} nhận xét; bỏ qua ${alreadySaved} học viên đã lưu trên LMS.`);
   }
 
   function escapeHtml(str) {
